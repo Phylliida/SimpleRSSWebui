@@ -12,7 +12,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Set
 
 import feedparser
 from flask import Flask, jsonify, request, send_file
@@ -65,18 +65,47 @@ def _entry_timestamp(entry: dict) -> float:
     return time.mktime(stamp) if stamp else 0.0
 
 
+def _entry_id(feed_url: str, entry: dict) -> str:
+    preferred = entry.get("id") or entry.get("guid") or entry.get("link")
+    if preferred:
+        return f"{feed_url}|{preferred}"
+    return f"{feed_url}|{entry.get('title', '')}|{entry.get('published') or entry.get('updated')}"
+
+
 def _item_from_entry(feed_url: str, entry: dict) -> dict:
     return {
         "feed": feed_url,
+        "id": _entry_id(feed_url, entry),
         "title": entry.get("title") or "(no title)",
         "link": entry.get("link"),
         "published": entry.get("published") or entry.get("updated") or "",
         "summary": entry.get("summary") or entry.get("description") or "",
         "_ts": _entry_timestamp(entry),
+        "_viewed": False,
     }
 
 
-def _collect_items(feeds: Iterable[str], limit: int | None = 30) -> List[dict]:
+def _viewed_ids(events: Iterable[dict]) -> Set[str]:
+    seen: Set[str] = set()
+    for evt in events:
+        item_id = str(evt.get("item_id") or "").strip()
+        if not item_id:
+            continue
+        action = evt.get("action")
+        if action == "mark_viewed":
+            seen.add(item_id)
+        elif action == "unmark_viewed" and item_id in seen:
+            seen.remove(item_id)
+    return seen
+
+
+def _collect_items(
+    feeds: Iterable[str],
+    limit: int | None = 30,
+    include_viewed: bool = False,
+    viewed_ids: Set[str] | None = None,
+) -> List[dict]:
+    viewed_ids = viewed_ids or set()
     items = []
     for url in feeds:
         try:
@@ -84,10 +113,21 @@ def _collect_items(feeds: Iterable[str], limit: int | None = 30) -> List[dict]:
         except Exception:
             continue
         entries = parsed.entries if hasattr(parsed, "entries") else []
-        items.extend(_item_from_entry(url, entry) for entry in entries)
+        items.extend(
+            _item_from_entry(url, entry) for entry in entries
+        )
+    for item in items:
+        item["_viewed"] = item["id"] in viewed_ids
+    if not include_viewed:
+        items = [i for i in items if not i["_viewed"]]
     items.sort(key=lambda i: i["_ts"], reverse=True)
     trimmed = items if not limit or limit < 1 else items[:limit]
-    return [{k: v for k, v in item.items() if k != "_ts"} for item in trimmed]
+    cleaned = []
+    for item in trimmed:
+        base = {k: v for k, v in item.items() if k not in {"_ts", "_viewed"}}
+        base["viewed"] = item["_viewed"]
+        cleaned.append(base)
+    return cleaned
 
 
 @app.route("/api/feeds", methods=["GET"])
@@ -140,7 +180,41 @@ def api_list_items():
             limit = int(raw_limit)
     except (ValueError, TypeError):
         limit = 30
-    return jsonify({"items": _collect_items(current_feeds(), limit=limit)})
+    events = _load_events(LOG_PATH)
+    viewed_ids = _viewed_ids(events)
+    include_viewed = (
+        str(request.args.get("include_viewed", "")).lower() in {"1", "true", "yes", "on"}
+    )
+    return jsonify(
+        {
+            "items": _collect_items(
+                current_feeds(),
+                limit=limit,
+                include_viewed=include_viewed,
+                viewed_ids=viewed_ids,
+            )
+        }
+    )
+
+
+@app.route("/api/items/viewed", methods=["POST"])
+def api_mark_viewed():
+    payload = request.get_json(silent=True) or {}
+    item_id = str(payload.get("id", "")).strip()
+    if not item_id:
+        return jsonify({"error": "id is required"}), 400
+    _append_event(LOG_PATH, {"action": "mark_viewed", "item_id": item_id})
+    return jsonify({"id": item_id, "message": "marked"})
+
+
+@app.route("/api/items/viewed", methods=["DELETE"])
+def api_unmark_viewed():
+    payload = request.get_json(silent=True) or {}
+    item_id = str(payload.get("id", "")).strip()
+    if not item_id:
+        return jsonify({"error": "id is required"}), 400
+    _append_event(LOG_PATH, {"action": "unmark_viewed", "item_id": item_id})
+    return jsonify({"id": item_id, "message": "unmarked"})
 
 
 if __name__ == "__main__":
