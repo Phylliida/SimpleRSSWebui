@@ -26,6 +26,10 @@ LOG_PATH = Path(
     os.environ.get("FEED_LOG_PATH", Path(__file__).with_name("feeds.jsonl"))
 )
 INDEX_HTML_PATH = Path(__file__).with_name("index.html")
+CACHE_DIR = Path(
+    os.environ.get("FEED_CACHE_DIR", Path(__file__).with_name("cache"))
+)
+CACHE_ITEMS_PATH = CACHE_DIR / "items.json"
 
 
 def _load_events(path: Path) -> List[dict]:
@@ -40,6 +44,30 @@ def _append_event(path: Path, event: dict) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event))
         handle.write("\n")
+
+
+def _clear_cache() -> None:
+    try:
+        CACHE_ITEMS_PATH.unlink()
+    except FileNotFoundError:
+        return
+
+
+def _load_cached_items() -> List[dict]:
+    if not CACHE_ITEMS_PATH.exists():
+        return []
+    try:
+        with CACHE_ITEMS_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_cache(items: List[dict]) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with CACHE_ITEMS_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(items, handle)
 
 
 def _feeds_from_events(events: Iterable[dict]) -> List[str]:
@@ -106,6 +134,25 @@ def _item_from_entry(feed_url: str, entry: dict) -> dict:
     }
 
 
+def _gather_feed_items(feeds: Iterable[str]) -> List[dict]:
+    items: List[dict] = []
+    for url in feeds:
+        try:
+            parsed = feedparser.parse(url)
+        except Exception:
+            continue
+        entries = parsed.entries if hasattr(parsed, "entries") else []
+        items.extend(_item_from_entry(url, entry) for entry in entries)
+    return items
+
+
+def _refresh_cache(feeds: Iterable[str]) -> List[dict]:
+    feed_list = list(feeds)
+    items = _gather_feed_items(feed_list)
+    _save_cache(items)
+    return items
+
+
 def _viewed_ids(events: Iterable[dict]) -> Set[str]:
     seen: Set[str] = set()
     for evt in events:
@@ -131,18 +178,14 @@ def _collect_items(
     if limit is not None and limit < 0:
         limit = 0
     offset = max(0, offset)
-    items = []
-    for url in feeds:
-        try:
-            parsed = feedparser.parse(url)
-        except Exception:
-            continue
-        entries = parsed.entries if hasattr(parsed, "entries") else []
-        items.extend(
-            _item_from_entry(url, entry) for entry in entries
-        )
+    feed_list = list(feeds)
+    items = _load_cached_items()
+    if not items:
+        items = _refresh_cache(feed_list)
+    else:
+        items = list(items)
     for item in items:
-        item["_viewed"] = item["id"] in viewed_ids
+        item["_viewed"] = item.get("id") in viewed_ids
     if not include_viewed:
         items = [i for i in items if not i["_viewed"]]
     items.sort(key=lambda i: i["_ts"], reverse=True)
@@ -175,6 +218,7 @@ def api_add_feed():
         return jsonify({"feeds": feeds, "message": "already present"})
 
     _append_event(LOG_PATH, {"action": "add_feed", "url": url})
+    _clear_cache()
     return jsonify({"feeds": current_feeds(), "message": "added"}), 201
 
 
@@ -190,6 +234,7 @@ def api_delete_feed():
         return jsonify({"feeds": feeds, "message": "not present"})
 
     _append_event(LOG_PATH, {"action": "remove_feed", "url": url})
+    _clear_cache()
     return jsonify({"feeds": current_feeds(), "message": "removed"})
 
 
@@ -219,6 +264,8 @@ def api_import_opml():
     new_urls = [u for u in urls if u and u not in feeds]
     for url in new_urls:
         _append_event(LOG_PATH, {"action": "add_feed", "url": url})
+    if new_urls:
+        _clear_cache()
     return jsonify(
         {
             "feeds": current_feeds(),
@@ -237,6 +284,15 @@ def api_export_opml():
         mimetype="text/x-opml",
         as_attachment=True,
         download_name="feeds.opml",
+    )
+
+
+@app.route("/api/feeds/refresh", methods=["POST"])
+def api_refresh_feeds():
+    feeds = current_feeds()
+    items = _refresh_cache(feeds)
+    return jsonify(
+        {"feeds": feeds, "items_cached": len(items), "message": "refreshed"}
     )
 
 

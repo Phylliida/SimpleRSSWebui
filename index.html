@@ -233,6 +233,7 @@
         </label>
         <button type="button" id="import-opml">Import OPML</button>
         <button type="button" id="export-opml">Export OPML</button>
+        <button type="button" id="refresh-feeds">Refresh feeds</button>
       </div>
       <label for="item-limit" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;color:#cbd5e1;">
         Items to show (0 = all):
@@ -267,6 +268,7 @@
     const opmlInput = document.getElementById("opml-file");
     const importOpmlBtn = document.getElementById("import-opml");
     const exportOpmlBtn = document.getElementById("export-opml");
+    const refreshBtn = document.getElementById("refresh-feeds");
     const itemLimitInput = document.getElementById("item-limit");
     const showViewedInput = document.getElementById("show-viewed");
     const pagers = Array.from(document.querySelectorAll(".pager"));
@@ -449,6 +451,24 @@
           setStatus("Exported");
         })
         .catch((err) => setStatus(err.message || "Failed to export", true));
+    });
+
+    refreshBtn.addEventListener("click", () => {
+      setStatus("Refreshing feeds...");
+      refreshBtn.disabled = true;
+      fetch("/api/feeds/refresh", { method: "POST" })
+        .then((r) => r.json().then((data) => ({ status: r.status, data })))
+        .then(({ status, data }) => {
+          if (status >= 400) throw new Error(data.error || "Failed");
+          renderFeeds(data.feeds || []);
+          setStatus(data.message || "Refreshed");
+          currentPage = 1;
+          return fetchItems();
+        })
+        .catch((err) => setStatus(err.message || "Failed to refresh", true))
+        .finally(() => {
+          refreshBtn.disabled = false;
+        });
     });
 
     feedList.addEventListener("click", (ev) => {
