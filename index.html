@@ -192,11 +192,29 @@
       font-size: 13px;
       user-select: none;
     }
-    .mark-box input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      accent-color: #7dd3fc;
+    .mark-toggle {
+      border: 1px solid rgba(125, 211, 252, 0.25);
+      background: rgba(125, 211, 252, 0.08);
+      border-radius: 10px;
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #7dd3fc;
       cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+      overflow: visible;
+    }
+    .mark-toggle:hover { transform: translateY(-1px); border-color: rgba(125, 211, 252, 0.5); }
+    .mark-toggle:active { transform: translateY(0); }
+    .mark-toggle.viewed { color: #cbd5e1; background: rgba(148, 163, 184, 0.08); border-color: rgba(148, 163, 184, 0.3); }
+    .mark-icon {
+      width: 22px;
+      height: 22px;
+      display: block;
+      transform: scale(4);
+      transform-origin: center;
     }
     .pager {
       display: flex;
@@ -296,6 +314,8 @@
     const nextPageBtns = Array.from(document.querySelectorAll(".next-page"));
     let currentPage = 1;
     let totalItems = 0;
+    const viewedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M1.606 6.08a1 1 0 0 1 1.313.526L2 7l.92-.394v-.001l.003.009l.021.045l.094.194c.086.172.219.424.4.729a13.4 13.4 0 0 0 1.67 2.237a12 12 0 0 0 .59.592C7.18 11.8 9.251 13 12 13a8.7 8.7 0 0 0 3.22-.602c1.227-.483 2.254-1.21 3.096-1.998a13 13 0 0 0 2.733-3.725l.027-.058l.005-.011a1 1 0 0 1 1.838.788L22 7l.92.394l-.003.005l-.004.008l-.011.026l-.04.087a14 14 0 0 1-.741 1.348a15.4 15.4 0 0 1-1.711 2.256l.797.797a1 1 0 0 1-1.414 1.415l-.84-.84a12 12 0 0 1-1.897 1.256l.782 1.202a1 1 0 1 1-1.676 1.091l-.986-1.514c-.679.208-1.404.355-2.176.424V16.5a1 1 0 0 1-2 0v-1.544c-.775-.07-1.5-.217-2.177-.425l-.985 1.514a1 1 0 0 1-1.676-1.09l.782-1.203c-.7-.37-1.332-.8-1.897-1.257l-.84.84a1 1 0 0 1-1.414-1.414l.797-.797a15.4 15.4 0 0 1-1.87-2.519a14 14 0 0 1-.591-1.107l-.033-.072l-.01-.021l-.002-.007l-.001-.002v-.001C1.08 7.395 1.08 7.394 2 7l-.919.395a1 1 0 0 1 .525-1.314" clip-rule="evenodd"/></svg>`;
+    const unviewedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4s7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20s-7.028-2.5-8.725-4.704Z"/><path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z"/></g></svg>`;
 
     const renderFeeds = (feeds) => {
       feedList.innerHTML = feeds.map(
@@ -369,10 +389,9 @@
         const viewed = Boolean(item.viewed);
         const mark = item.id
           ? `<div class="item-actions">
-              <label class="mark-box" title="Toggle viewed">
-                <input type="checkbox" class="mark" data-id="${esc(item.id)}" ${viewed ? "checked" : ""} />
-                viewed
-              </label>
+              <button class="mark-toggle ${viewed ? "viewed" : ""}" data-id="${esc(item.id)}" data-viewed="${viewed ? "true" : "false"}" title="Toggle viewed">
+                ${viewed ? viewedIcon : unviewedIcon}
+              </button>
              </div>`
           : "";
         const liClass = viewed ? "viewed" : "";
@@ -550,28 +569,27 @@
       })
     );
 
-    itemsList.addEventListener("change", (ev) => {
-      const box = ev.target.closest("input.mark");
-      if (!box) return;
-      const id = box.dataset.id;
+    itemsList.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button.mark-toggle");
+      if (!btn) return;
+      const id = btn.dataset.id;
       if (!id) return;
-      const checked = box.checked;
-      box.disabled = true;
-      setStatus(checked ? "Marking viewed..." : "Unmarking...");
+      const nextViewed = btn.dataset.viewed === "true" ? false : true;
+      btn.disabled = true;
+      setStatus(nextViewed ? "Marking viewed..." : "Unmarking...");
       fetch("/api/items/viewed", {
-        method: checked ? "POST" : "DELETE",
+        method: nextViewed ? "POST" : "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       })
         .then((r) => r.json().then((data) => ({ status: r.status, data })))
         .then(({ status, data }) => {
           if (status >= 400) throw new Error(data.error || "Failed");
-          setStatus(data.message || (checked ? "Marked" : "Unmarked"));
+          setStatus(data.message || (nextViewed ? "Marked" : "Unmarked"));
           fetchItems();
         })
         .catch((err) => {
-          box.checked = !checked;
-          box.disabled = false;
+          btn.disabled = false;
           setStatus(err.message || "Failed to update", true);
         });
     });
