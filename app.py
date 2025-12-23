@@ -121,6 +121,44 @@ def _entry_id(feed_url: str, entry: dict) -> str:
     return f"{feed_url}|{entry.get('title', '')}|{entry.get('published') or entry.get('updated')}"
 
 
+def _thumbnail_from_entry(entry: dict) -> str:
+    def safe_url(val: object) -> str:
+        url = str(val or "")
+        return url if url.startswith(("http://", "https://")) else ""
+
+    def first_url(items: object) -> str:
+        if not items:
+            return ""
+        if isinstance(items, dict):
+            return safe_url(items.get("url") or items.get("href"))
+        if isinstance(items, (list, tuple)):
+            for item in items:
+                if isinstance(item, dict):
+                    url = safe_url(item.get("url") or item.get("href"))
+                else:
+                    url = safe_url(getattr(item, "url", "") or getattr(item, "href", ""))
+                if url:
+                    return url
+        return ""
+
+    thumb = first_url(entry.get("media_thumbnail"))
+    if not thumb:
+        thumb = first_url(entry.get("media_content"))
+    if thumb:
+        return thumb
+
+    video_id = str(entry.get("yt_videoid") or entry.get("videoid") or "")
+    if "yt:video:" in video_id:
+        video_id = video_id.split("yt:video:", 1)[1]
+    if not video_id:
+        link = str(entry.get("link") or "")
+        if "youtube.com" in link and "v=" in link:
+            video_id = link.split("v=", 1)[1].split("&", 1)[0]
+        elif "youtu.be/" in link:
+            video_id = link.split("youtu.be/", 1)[1].split("?", 1)[0]
+    return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
+
+
 def _item_from_entry(feed_url: str, entry: dict) -> dict:
     return {
         "feed": feed_url,
@@ -129,6 +167,7 @@ def _item_from_entry(feed_url: str, entry: dict) -> dict:
         "link": entry.get("link"),
         "published": entry.get("published") or entry.get("updated") or "",
         "summary": entry.get("summary") or entry.get("description") or "",
+        "thumbnail": _thumbnail_from_entry(entry),
         "_ts": _entry_timestamp(entry),
         "_viewed": False,
     }

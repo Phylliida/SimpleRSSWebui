@@ -108,6 +108,13 @@
       gap: 10px;
       width: 100%;
     }
+    .item-main {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
     .item-actions {
       display: flex;
       align-items: center;
@@ -127,6 +134,18 @@
       font-size: 15px;
       line-height: 1.5;
       white-space: pre-line;
+    }
+    .thumb-wrap {
+      flex: 0 0 auto;
+    }
+    .thumb {
+      width: 120px;
+      height: auto;
+      border-radius: 8px;
+      object-fit: cover;
+      display: block;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
     }
     .summary img {
       max-width: 100%;
@@ -286,6 +305,8 @@
 
     const esc = (text = "") =>
       text.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    const safeUrl = (url = "") =>
+      (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://"))) ? url : "";
 
     const formatTime = (value) => {
       if (!value) return "";
@@ -340,6 +361,8 @@
         const title = esc(item.title || "(untitled)");
         const safeLink = esc(item.link || "");
         const link = item.link ? `<a href="${safeLink}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
+        const thumbUrl = safeUrl(item.thumbnail || "");
+        const thumb = thumbUrl ? `<div class="thumb-wrap"><img class="thumb" src="${esc(thumbUrl)}" alt="" loading="lazy" /></div>` : "";
         const metaBits = [item.feed, formatTime(item.published)].map(esc).filter(Boolean);
         const meta = metaBits.length ? `<div class="meta">${metaBits.join(" · ")}</div>` : "";
         const summary = item.summary ? `<div class="summary">${sanitizeSummary(item.summary)}</div>` : "";
@@ -353,7 +376,17 @@
              </div>`
           : "";
         const liClass = viewed ? "viewed" : "";
-        return `<li class="${liClass}"><div class="item-head"><div class="item-title">${link}</div>${mark}</div>${meta}${summary}</li>`;
+        return `<li class="${liClass}">
+          <div class="item-head">
+            ${thumb}
+            <div class="item-main">
+              <div class="item-title">${link}</div>
+              ${meta}
+            </div>
+            ${mark}
+          </div>
+          ${summary}
+        </li>`;
       }).join("");
     };
 
