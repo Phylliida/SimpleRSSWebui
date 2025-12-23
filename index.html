@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple RSS Feeds</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --fg: #e2e8f0;
+      --card: #1e293b;
+      --accent: #7dd3fc;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Palatino", "Book Antiqua", serif;
+      background: radial-gradient(circle at 20% 20%, rgba(125, 211, 252, 0.12), transparent 35%),
+                  radial-gradient(circle at 80% 0%, rgba(248, 113, 113, 0.14), transparent 30%),
+                  var(--bg);
+      color: var(--fg);
+      display: grid;
+      place-items: center;
+      padding: 2rem;
+    }
+    .card {
+      width: min(720px, 100%);
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      box-shadow: 0 16px 60px rgba(0, 0, 0, 0.35);
+      padding: 24px 26px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      letter-spacing: 0.02em;
+      font-size: 28px;
+    }
+    p {
+      margin: 0 0 16px;
+      color: #cbd5e1;
+    }
+    form {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    input[type="url"] {
+      flex: 1 1 260px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(15, 23, 42, 0.8);
+      color: var(--fg);
+      outline: none;
+    }
+    input[type="url"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.3);
+    }
+    button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), #38bdf8);
+      color: #0f172a;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    #feeds {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 8px;
+    }
+    #feeds li {
+      padding: 10px 12px;
+      background: rgba(15, 23, 42, 0.7);
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      word-break: break-word;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .delete {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: #0f172a;
+      color: #fca5a5;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      transition: background 120ms ease, transform 120ms ease;
+    }
+    .delete:hover { background: #1e293b; transform: translateY(-1px); }
+    .status {
+      min-height: 20px;
+      color: #a5f3fc;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>RSS Sources</h1>
+    <p>Append new feeds to the log; the API exposes a simple list for feedparser/reader.</p>
+    <form id="feed-form">
+      <input id="feed-url" type="url" name="url" placeholder="https://example.com/feed.xml" required />
+      <button type="submit">Add feed</button>
+    </form>
+    <div class="status" id="status"></div>
+    <ul id="feeds"></ul>
+  </div>
+  <script>
+    const feedList = document.getElementById("feeds");
+    const statusBox = document.getElementById("status");
+    const urlInput = document.getElementById("feed-url");
+
+    const renderFeeds = (feeds) => {
+      feedList.innerHTML = feeds.map(
+        (url) => `<li><span>${url}</span><button class="delete" data-url="${url}" aria-label="Remove ${url}">&minus;</button></li>`
+      ).join("");
+    };
+
+    const setStatus = (text, isError = false) => {
+      statusBox.textContent = text || "";
+      statusBox.style.color = isError ? "#fca5a5" : "#a5f3fc";
+    };
+
+    const fetchFeeds = () =>
+      fetch("/api/feeds")
+        .then((r) => r.json())
+        .then((data) => renderFeeds(data.feeds || []))
+        .catch(() => setStatus("Failed to load feeds", true));
+
+    document.getElementById("feed-form").addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const url = urlInput.value.trim();
+      if (!url) return;
+      setStatus("Adding feed...");
+      fetch("/api/feeds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      })
+        .then((r) => r.json().then((data) => ({ status: r.status, data })))
+        .then(({ status, data }) => {
+          if (status >= 400) throw new Error(data.error || "Failed");
+          renderFeeds(data.feeds || []);
+          setStatus(data.message || "Added");
+          urlInput.value = "";
+        })
+        .catch((err) => setStatus(err.message || "Failed to add feed", true));
+    });
+
+    feedList.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button.delete");
+      if (!btn) return;
+      const url = btn.dataset.url;
+      setStatus("Removing feed...");
+      fetch("/api/feeds", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      })
+        .then((r) => r.json().then((data) => ({ status: r.status, data })))
+        .then(({ status, data }) => {
+          if (status >= 400) throw new Error(data.error || "Failed");
+          renderFeeds(data.feeds || []);
+          setStatus(data.message || "Removed");
+        })
+        .catch((err) => setStatus(err.message || "Failed to remove feed", true));
+    });
+
+    fetchFeeds();
+  </script>
+</body>
+</html>
