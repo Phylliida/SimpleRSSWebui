@@ -11,10 +11,13 @@ from __future__ import annotations
 import json
 import os
 import time
+from html import escape
+from io import BytesIO
 from pathlib import Path
 from typing import Iterable, List, Set
 
 import feedparser
+import listparser
 from flask import Flask, jsonify, request, send_file
 
 app = Flask(__name__)
@@ -58,6 +61,24 @@ def _feeds_from_events(events: Iterable[dict]) -> List[str]:
 
 def current_feeds() -> List[str]:
     return _feeds_from_events(_load_events(LOG_PATH))
+
+
+def _feeds_to_opml(feeds: Iterable[str]) -> str:
+    outlines = "\n".join(
+        f'    <outline type="rss" text="{escape(url)}" xmlUrl="{escape(url)}" />'
+        for url in feeds
+    )
+    return "\n".join(
+        [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            "<opml version=\"1.0\">",
+            "  <head><title>SimpleRSSWebui</title></head>",
+            "  <body>",
+            outlines,
+            "  </body>",
+            "</opml>",
+        ]
+    )
 
 
 def _entry_timestamp(entry: dict) -> float:
@@ -170,6 +191,53 @@ def api_delete_feed():
 
     _append_event(LOG_PATH, {"action": "remove_feed", "url": url})
     return jsonify({"feeds": current_feeds(), "message": "removed"})
+
+
+@app.route("/api/feeds/import", methods=["POST"])
+def api_import_opml():
+    uploaded = request.files.get("file")
+    if not uploaded:
+        return jsonify({"error": "file is required"}), 400
+    try:
+        raw = uploaded.read()
+        payload = raw.decode("utf-8", "ignore") if isinstance(raw, (bytes, bytearray)) else raw
+        parsed = listparser.parse(payload)
+    except Exception:
+        return jsonify({"error": "failed to parse opml"}), 400
+    def feed_url(feed: object) -> str:
+        if isinstance(feed, dict):
+            return str(feed.get("url") or feed.get("xmlUrl") or "").strip()
+        return str(getattr(feed, "url", "") or getattr(feed, "xmlUrl", "")).strip()
+    urls: list[str] = []
+    for feed in getattr(parsed, "feeds", []):
+        url = feed_url(feed)
+        if url:
+            urls.append(url)
+    if not urls:
+        return jsonify({"feeds": current_feeds(), "imported": 0, "message": "no feeds found"})
+    feeds = current_feeds()
+    new_urls = [u for u in urls if u and u not in feeds]
+    for url in new_urls:
+        _append_event(LOG_PATH, {"action": "add_feed", "url": url})
+    return jsonify(
+        {
+            "feeds": current_feeds(),
+            "imported": len(new_urls),
+            "message": f"imported {len(new_urls)} new feeds",
+        }
+    )
+
+@app.route("/api/feeds/export", methods=["GET"])
+def api_export_opml():
+    opml = _feeds_to_opml(current_feeds())
+    buf = BytesIO(opml.encode("utf-8"))
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="text/x-opml",
+        as_attachment=True,
+        download_name="feeds.opml",
+    )
 
 
 @app.route("/", methods=["GET"])

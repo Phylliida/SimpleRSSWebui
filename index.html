@@ -227,6 +227,13 @@
         <input id="feed-url" type="url" name="url" placeholder="https://example.com/feed.xml" required />
         <button type="submit">Add feed</button>
       </form>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
+          <input id="opml-file" type="file" accept=".opml, text/xml" style="color:#cbd5e1;" />
+        </label>
+        <button type="button" id="import-opml">Import OPML</button>
+        <button type="button" id="export-opml">Export OPML</button>
+      </div>
       <label for="item-limit" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;color:#cbd5e1;">
         Items to show (0 = all):
         <input id="item-limit" type="number" min="0" value="50" style="width:90px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(15,23,42,0.8);color:var(--fg);" />
@@ -257,6 +264,9 @@
     const itemsList = document.getElementById("items");
     const statusBox = document.getElementById("status");
     const urlInput = document.getElementById("feed-url");
+    const opmlInput = document.getElementById("opml-file");
+    const importOpmlBtn = document.getElementById("import-opml");
+    const exportOpmlBtn = document.getElementById("export-opml");
     const itemLimitInput = document.getElementById("item-limit");
     const showViewedInput = document.getElementById("show-viewed");
     const pagers = Array.from(document.querySelectorAll(".pager"));
@@ -400,6 +410,45 @@
           fetchItems();
         })
         .catch((err) => setStatus(err.message || "Failed to add feed", true));
+    });
+
+    importOpmlBtn.addEventListener("click", () => {
+      const file = (opmlInput.files || [])[0];
+      if (!file) {
+        setStatus("Choose an OPML file first", true);
+        return;
+      }
+      const form = new FormData();
+      form.append("file", file);
+      setStatus("Importing OPML...");
+      fetch("/api/feeds/import", { method: "POST", body: form })
+        .then((r) => r.json().then((data) => ({ status: r.status, data })))
+        .then(({ status, data }) => {
+          if (status >= 400) throw new Error(data.error || "Failed");
+          renderFeeds(data.feeds || []);
+          setStatus(data.message || "Imported");
+          fetchItems();
+        })
+        .catch((err) => setStatus(err.message || "Failed to import", true));
+    });
+
+    exportOpmlBtn.addEventListener("click", () => {
+      setStatus("Exporting OPML...");
+      fetch("/api/feeds/export")
+        .then((r) => {
+          if (!r.ok) throw new Error("Failed");
+          return r.blob();
+        })
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "feeds.opml";
+          a.click();
+          URL.revokeObjectURL(url);
+          setStatus("Exported");
+        })
+        .catch((err) => setStatus(err.message || "Failed to export", true));
     });
 
     feedList.addEventListener("click", (ev) => {
