@@ -104,8 +104,12 @@ def _collect_items(
     limit: int | None = 30,
     include_viewed: bool = False,
     viewed_ids: Set[str] | None = None,
-) -> List[dict]:
+    offset: int = 0,
+) -> tuple[List[dict], int]:
     viewed_ids = viewed_ids or set()
+    if limit is not None and limit < 0:
+        limit = 0
+    offset = max(0, offset)
     items = []
     for url in feeds:
         try:
@@ -121,13 +125,16 @@ def _collect_items(
     if not include_viewed:
         items = [i for i in items if not i["_viewed"]]
     items.sort(key=lambda i: i["_ts"], reverse=True)
-    trimmed = items if not limit or limit < 1 else items[:limit]
+    total = len(items)
+    trimmed = items[offset:] if offset else items
+    if limit and limit > 0:
+        trimmed = trimmed[:limit]
     cleaned = []
     for item in trimmed:
         base = {k: v for k, v in item.items() if k not in {"_ts", "_viewed"}}
         base["viewed"] = item["_viewed"]
         cleaned.append(base)
-    return cleaned
+    return cleaned, total
 
 
 @app.route("/api/feeds", methods=["GET"])
@@ -185,15 +192,23 @@ def api_list_items():
     include_viewed = (
         str(request.args.get("include_viewed", "")).lower() in {"1", "true", "yes", "on"}
     )
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    offset = 0
+    if limit and limit > 0:
+        offset = (page - 1) * limit
+    items, total = _collect_items(
+        current_feeds(),
+        limit=limit,
+        include_viewed=include_viewed,
+        viewed_ids=viewed_ids,
+        offset=offset,
+    )
+    page_size = limit if limit and limit > 0 else total
     return jsonify(
-        {
-            "items": _collect_items(
-                current_feeds(),
-                limit=limit,
-                include_viewed=include_viewed,
-                viewed_ids=viewed_ids,
-            )
-        }
+        {"items": items, "total": total, "page": page, "page_size": page_size}
     )
 
 

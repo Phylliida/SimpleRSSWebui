@@ -179,6 +179,38 @@
       accent-color: #7dd3fc;
       cursor: pointer;
     }
+    .pager {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 12px;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+    .pager button {
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      background: rgba(125, 211, 252, 0.12);
+      color: #e2e8f0;
+      border: 1px solid rgba(125, 211, 252, 0.25);
+    }
+    .pager button:disabled {
+      opacity: 0.5;
+      cursor: default;
+      transform: none;
+    }
+    .items-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 18px 0 8px;
+    }
+    .items-header h2 {
+      margin: 0;
+    }
     .status {
       min-height: 20px;
       color: #a5f3fc;
@@ -205,8 +237,20 @@
       </label>
       <div class="status" id="status"></div>
       <ul id="feeds" class="list"></ul>
-      <h2 style="margin: 18px 0 8px;">Items</h2>
+      <div class="items-header">
+        <h2>Items</h2>
+        <div class="pager pager-inline" style="display:none;">
+          <button class="prev-page" type="button">Previous</button>
+          <div class="page-info">Page 1</div>
+          <button class="next-page" type="button">Next</button>
+        </div>
+      </div>
       <ul id="items" class="list"></ul>
+      <div class="pager pager-bottom" style="display:none;">
+        <button class="prev-page" type="button">Previous</button>
+        <div class="page-info">Page 1</div>
+        <button class="next-page" type="button">Next</button>
+      </div>
     </div>
   <script>
     const feedList = document.getElementById("feeds");
@@ -215,6 +259,12 @@
     const urlInput = document.getElementById("feed-url");
     const itemLimitInput = document.getElementById("item-limit");
     const showViewedInput = document.getElementById("show-viewed");
+    const pagers = Array.from(document.querySelectorAll(".pager"));
+    const pageInfos = Array.from(document.querySelectorAll(".page-info"));
+    const prevPageBtns = Array.from(document.querySelectorAll(".prev-page"));
+    const nextPageBtns = Array.from(document.querySelectorAll(".next-page"));
+    let currentPage = 1;
+    let totalItems = 0;
 
     const renderFeeds = (feeds) => {
       feedList.innerHTML = feeds.map(
@@ -311,11 +361,23 @@
       const limit = Number.isFinite(n) ? n : 30;
       const params = [];
       params.push(limit > 0 ? `limit=${limit}` : "limit=0");
+      if (limit > 0) params.push(`page=${currentPage}`);
       if (showViewedInput.checked) params.push("include_viewed=1");
       const qs = params.length ? `?${params.join("&")}` : "";
       return fetch(`/api/items${qs}`)
         .then((r) => r.json())
-        .then((data) => renderItems(data.items || []))
+        .then((data) => {
+          totalItems = data.total || (data.items || []).length;
+          const pageFromServer = data.page || 1;
+          const maxPage = limit > 0 ? Math.max(1, Math.ceil((totalItems || 0) / limit)) : 1;
+          if (pageFromServer > maxPage) {
+            currentPage = maxPage;
+            return fetchItems();
+          }
+          currentPage = pageFromServer;
+          renderItems(data.items || []);
+          updatePager(maxPage);
+        })
         .catch(() => setStatus("Failed to load items", true));
     };
 
@@ -360,8 +422,31 @@
         .catch((err) => setStatus(err.message || "Failed to remove feed", true));
     });
 
-    itemLimitInput.addEventListener("change", fetchItems);
-    showViewedInput.addEventListener("change", fetchItems);
+    itemLimitInput.addEventListener("change", () => {
+      currentPage = 1;
+      fetchItems();
+    });
+    showViewedInput.addEventListener("change", () => {
+      currentPage = 1;
+      fetchItems();
+    });
+    prevPageBtns.forEach((btn) =>
+      btn.addEventListener("click", () => {
+        if (currentPage <= 1) return;
+        currentPage -= 1;
+        fetchItems();
+      })
+    );
+    nextPageBtns.forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const n = parseInt(itemLimitInput.value, 10);
+        if (!(Number.isFinite(n) && n > 0)) return;
+        const maxPage = Math.max(1, Math.ceil((totalItems || 0) / n));
+        if (currentPage >= maxPage) return;
+        currentPage += 1;
+        fetchItems();
+      })
+    );
 
     itemsList.addEventListener("change", (ev) => {
       const box = ev.target.closest("input.mark");
@@ -388,6 +473,25 @@
           setStatus(err.message || "Failed to update", true);
         });
     });
+
+    const updatePager = (maxPage) => {
+      const n = parseInt(itemLimitInput.value, 10);
+      const limit = Number.isFinite(n) ? n : 30;
+      const disablePaging = !Number.isFinite(limit) || limit <= 0 || totalItems <= limit;
+      pagers.forEach((p) => {
+        p.style.display = disablePaging ? "none" : "flex";
+      });
+      if (disablePaging) return;
+      pageInfos.forEach((info) => {
+        info.textContent = `Page ${currentPage} of ${maxPage}`;
+      });
+      prevPageBtns.forEach((btn) => {
+        btn.disabled = currentPage <= 1;
+      });
+      nextPageBtns.forEach((btn) => {
+        btn.disabled = currentPage >= maxPage;
+      });
+    };
 
     fetchFeeds().then(fetchItems).catch(fetchItems);
   </script>
