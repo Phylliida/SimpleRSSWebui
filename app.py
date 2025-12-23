@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Iterable, List
 
+import feedparser
 from flask import Flask, jsonify, request, send_file
 
 app = Flask(__name__)
@@ -58,6 +60,36 @@ def current_feeds() -> List[str]:
     return _feeds_from_events(_load_events(LOG_PATH))
 
 
+def _entry_timestamp(entry: dict) -> float:
+    stamp = entry.get("published_parsed") or entry.get("updated_parsed")
+    return time.mktime(stamp) if stamp else 0.0
+
+
+def _item_from_entry(feed_url: str, entry: dict) -> dict:
+    return {
+        "feed": feed_url,
+        "title": entry.get("title") or "(no title)",
+        "link": entry.get("link"),
+        "published": entry.get("published") or entry.get("updated") or "",
+        "summary": entry.get("summary") or entry.get("description") or "",
+        "_ts": _entry_timestamp(entry),
+    }
+
+
+def _collect_items(feeds: Iterable[str], limit: int | None = 30) -> List[dict]:
+    items = []
+    for url in feeds:
+        try:
+            parsed = feedparser.parse(url)
+        except Exception:
+            continue
+        entries = parsed.entries if hasattr(parsed, "entries") else []
+        items.extend(_item_from_entry(url, entry) for entry in entries)
+    items.sort(key=lambda i: i["_ts"], reverse=True)
+    trimmed = items if not limit or limit < 1 else items[:limit]
+    return [{k: v for k, v in item.items() if k != "_ts"} for item in trimmed]
+
+
 @app.route("/api/feeds", methods=["GET"])
 def api_list_feeds():
     return jsonify({"feeds": current_feeds()})
@@ -96,6 +128,19 @@ def api_delete_feed():
 @app.route("/", methods=["GET"])
 def index():
     return send_file(INDEX_HTML_PATH, mimetype="text/html")
+
+
+@app.route("/api/items", methods=["GET"])
+def api_list_items():
+    try:
+        raw_limit = request.args.get("limit", "30")
+        if isinstance(raw_limit, str) and raw_limit.lower() == "all":
+            limit = 0
+        else:
+            limit = int(raw_limit)
+    except (ValueError, TypeError):
+        limit = 30
+    return jsonify({"items": _collect_items(current_feeds(), limit=limit)})
 
 
 if __name__ == "__main__":
