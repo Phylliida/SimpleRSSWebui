@@ -170,6 +170,32 @@
       transition: background 120ms ease, transform 120ms ease;
     }
     .delete:hover { background: #1e293b; transform: translateY(-1px); }
+    .feed-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .favorite-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+      border: none;
+      background: transparent;
+      color: #fbbf24;
+      cursor: pointer;
+      transition: transform 120ms ease, color 120ms ease;
+    }
+    .favorite-icon {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+    .favorite-toggle.on {
+      color: #fcd34d;
+    }
+    .favorite-toggle:hover { transform: translateY(-1px); }
+    .favorite-toggle:active { transform: translateY(0); }
     .mark {
       padding: 6px 10px;
       border-radius: 8px;
@@ -280,6 +306,10 @@
         <input id="show-viewed" type="checkbox" />
         Show viewed items
       </label>
+      <label for="favorites-only" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;color:#cbd5e1;">
+        <input id="favorites-only" type="checkbox" />
+        Show only favorite feeds
+      </label>
       <div class="status" id="status"></div>
       <ul id="feeds" class="list"></ul>
       <div class="items-header">
@@ -308,19 +338,34 @@
     const refreshBtn = document.getElementById("refresh-feeds");
     const itemLimitInput = document.getElementById("item-limit");
     const showViewedInput = document.getElementById("show-viewed");
+    const favoritesOnlyInput = document.getElementById("favorites-only");
     const pagers = Array.from(document.querySelectorAll(".pager"));
     const pageInfos = Array.from(document.querySelectorAll(".page-info"));
     const prevPageBtns = Array.from(document.querySelectorAll(".prev-page"));
     const nextPageBtns = Array.from(document.querySelectorAll(".next-page"));
     let currentPage = 1;
     let totalItems = 0;
+    let favoriteFeeds = new Set();
     const viewedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M1.606 6.08a1 1 0 0 1 1.313.526L2 7l.92-.394v-.001l.003.009l.021.045l.094.194c.086.172.219.424.4.729a13.4 13.4 0 0 0 1.67 2.237a12 12 0 0 0 .59.592C7.18 11.8 9.251 13 12 13a8.7 8.7 0 0 0 3.22-.602c1.227-.483 2.254-1.21 3.096-1.998a13 13 0 0 0 2.733-3.725l.027-.058l.005-.011a1 1 0 0 1 1.838.788L22 7l.92.394l-.003.005l-.004.008l-.011.026l-.04.087a14 14 0 0 1-.741 1.348a15.4 15.4 0 0 1-1.711 2.256l.797.797a1 1 0 0 1-1.414 1.415l-.84-.84a12 12 0 0 1-1.897 1.256l.782 1.202a1 1 0 1 1-1.676 1.091l-.986-1.514c-.679.208-1.404.355-2.176.424V16.5a1 1 0 0 1-2 0v-1.544c-.775-.07-1.5-.217-2.177-.425l-.985 1.514a1 1 0 0 1-1.676-1.09l.782-1.203c-.7-.37-1.332-.8-1.897-1.257l-.84.84a1 1 0 0 1-1.414-1.414l.797-.797a15.4 15.4 0 0 1-1.87-2.519a14 14 0 0 1-.591-1.107l-.033-.072l-.01-.021l-.002-.007l-.001-.002v-.001C1.08 7.395 1.08 7.394 2 7l-.919.395a1 1 0 0 1 .525-1.314" clip-rule="evenodd"/></svg>`;
     const unviewedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4s7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20s-7.028-2.5-8.725-4.704Z"/><path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z"/></g></svg>`;
+    const starOutline = `<svg class="favorite-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="m7.625 6.4l2.8-3.625q.3-.4.713-.587T12 2t.863.188t.712.587l2.8 3.625l4.25 1.425q.65.2 1.025.738t.375 1.187q0 .3-.088.6t-.287.575l-2.75 3.9l.1 4.1q.025.875-.575 1.475t-1.4.6q-.05 0-.55-.075L12 19.675l-4.475 1.25q-.125.05-.275.063T6.975 21q-.8 0-1.4-.6T5 18.925l.1-4.125l-2.725-3.875q-.2-.275-.288-.575T2 9.75q0-.625.363-1.162t1.012-.763zM8.85 8.125L4 9.725L7.1 14.2L7 18.975l5-1.375l5 1.4l-.1-4.8L20 9.775l-4.85-1.65L12 4zM12 11.5"/></svg>`;
+    const starFilled = `<svg class="favorite-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="m7.625 6.4l2.8-3.625q.3-.4.713-.587T12 2t.863.188t.712.587l2.8 3.625l4.25 1.425q.65.2 1.025.738t.375 1.187q0 .3-.088.6t-.287.575l-2.75 3.9l.1 4.1q.025.875-.575 1.475t-1.4.6q-.05 0-.55-.075L12 19.675l-4.475 1.25q-.125.05-.275.063T6.975 21q-.8 0-1.4-.6T5 18.925l.1-4.125l-2.725-3.875q-.2-.275-.288-.575T2 9.75q0-.625.363-1.162t1.012-.763z"/></svg>`;
 
-    const renderFeeds = (feeds) => {
-      feedList.innerHTML = feeds.map(
-        (url) => `<li><span>${url}</span><button class="delete" data-url="${url}" aria-label="Remove ${url}">&minus;</button></li>`
-      ).join("");
+    const renderFeeds = (feeds, favorites = favoriteFeeds) => {
+      favoriteFeeds = favorites instanceof Set ? favorites : new Set(favorites || []);
+      feedList.innerHTML = feeds.map((url) => {
+        const fav = favoriteFeeds.has(url);
+        return `<li><span>${url}</span><div class="feed-actions">
+          <button class="favorite-toggle${fav ? " on" : ""}" data-url="${url}" data-favorite="${fav ? "true" : "false"}" aria-label="${fav ? "Unfavorite" : "Favorite"} ${url}">${fav ? starFilled : starOutline}</button>
+          <button class="delete" data-url="${url}" aria-label="Remove ${url}">&minus;</button>
+        </div></li>`;
+      }).join("");
+    };
+
+    const applyFeeds = (data = {}) => {
+      const feeds = Array.isArray(data.feeds) ? data.feeds : [];
+      const favorites = Array.isArray(data.favorites) ? data.favorites : Array.from(favoriteFeeds);
+      renderFeeds(feeds, new Set(favorites));
     };
 
     const esc = (text = "") =>
@@ -417,7 +462,7 @@
     const fetchFeeds = () =>
       fetch("/api/feeds")
         .then((r) => r.json())
-        .then((data) => renderFeeds(data.feeds || []))
+        .then((data) => applyFeeds(data))
         .catch(() => setStatus("Failed to load feeds", true));
 
     const fetchItems = () => {
@@ -427,6 +472,7 @@
       params.push(limit > 0 ? `limit=${limit}` : "limit=0");
       if (limit > 0) params.push(`page=${currentPage}`);
       if (showViewedInput.checked) params.push("include_viewed=1");
+      if (favoritesOnlyInput.checked) params.push("favorites_only=1");
       const qs = params.length ? `?${params.join("&")}` : "";
       return fetch(`/api/items${qs}`)
         .then((r) => r.json())
@@ -458,7 +504,7 @@
         .then((r) => r.json().then((data) => ({ status: r.status, data })))
         .then(({ status, data }) => {
           if (status >= 400) throw new Error(data.error || "Failed");
-          renderFeeds(data.feeds || []);
+          applyFeeds(data);
           setStatus(data.message || "Added");
           urlInput.value = "";
           fetchItems();
@@ -479,7 +525,7 @@
         .then((r) => r.json().then((data) => ({ status: r.status, data })))
         .then(({ status, data }) => {
           if (status >= 400) throw new Error(data.error || "Failed");
-          renderFeeds(data.feeds || []);
+          applyFeeds(data);
           setStatus(data.message || "Imported");
           fetchItems();
         })
@@ -512,7 +558,7 @@
         .then((r) => r.json().then((data) => ({ status: r.status, data })))
         .then(({ status, data }) => {
           if (status >= 400) throw new Error(data.error || "Failed");
-          renderFeeds(data.feeds || []);
+          applyFeeds(data);
           setStatus(data.message || "Refreshed");
           currentPage = 1;
           return fetchItems();
@@ -524,6 +570,34 @@
     });
 
     feedList.addEventListener("click", (ev) => {
+      const favBtn = ev.target.closest("button.favorite-toggle");
+      if (favBtn) {
+        const url = favBtn.dataset.url;
+        if (!url) return;
+        const nextFavorite = favBtn.dataset.favorite !== "true";
+        favBtn.disabled = true;
+        setStatus(nextFavorite ? "Favoriting..." : "Removing favorite...");
+        fetch("/api/feeds/tags", {
+          method: nextFavorite ? "POST" : "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, tag: "favorite" }),
+        })
+          .then((r) => r.json().then((data) => ({ status: r.status, data })))
+          .then(({ status, data }) => {
+            if (status >= 400) throw new Error(data.error || "Failed");
+            applyFeeds(data);
+            setStatus(data.message || (nextFavorite ? "Favorited" : "Unfavorited"));
+            if (favoritesOnlyInput.checked) {
+              currentPage = 1;
+              return fetchItems();
+            }
+          })
+          .catch((err) => {
+            favBtn.disabled = false;
+            setStatus(err.message || "Failed to update favorite", true);
+          });
+        return;
+      }
       const btn = ev.target.closest("button.delete");
       if (!btn) return;
       const url = btn.dataset.url;
@@ -536,7 +610,7 @@
         .then((r) => r.json().then((data) => ({ status: r.status, data })))
         .then(({ status, data }) => {
           if (status >= 400) throw new Error(data.error || "Failed");
-          renderFeeds(data.feeds || []);
+          applyFeeds(data);
           setStatus(data.message || "Removed");
           fetchItems();
         })
@@ -548,6 +622,10 @@
       fetchItems();
     });
     showViewedInput.addEventListener("change", () => {
+      currentPage = 1;
+      fetchItems();
+    });
+    favoritesOnlyInput.addEventListener("change", () => {
       currentPage = 1;
       fetchItems();
     });

@@ -72,3 +72,33 @@
 {"action": "mark_viewed", "item_id": "https://news.yahoo.com/rss/mostviewed|trump-reveals-latest-vanity-project-003533323.html"}
 {"action": "mark_viewed", "item_id": "https://news.yahoo.com/rss/mostviewed|judge-cannon-clears-way-release-045426430.html"}
 {"action": "mark_viewed", "item_id": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml|https://www.nytimes.com/2025/12/22/arts/vince-zampella-dead.html"}
+{"action": "mark_viewed", "item_id": "http://rss.cnn.com/rss/edition.rss|https://www.cnn.com/2023/04/03/middleeast/kurdish-kingmaker-turkish-elections-mime-intl/index.html"}
+{"action": "mark_viewed", "item_id": "http://rss.cnn.com/rss/edition.rss|https://www.cnn.com/2023/04/03/football/chelsea-graham-potter-manager-premier-league-spt-intl/index.html"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom-data-insights.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC3XTzVzaHQEd30rQbuvCtTQ", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://bsky.app/profile/did:plc:kqbyr4gqt6p2l57htlsa4nha/rss", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom-data-insights.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom-data-insights.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom-data-insights.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://ourworldindata.org/atom-data-insights.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://ourworldindata.org/atom-data-insights.xml", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://www.huffpost.com/section/world-news/feed", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://www.huffpost.com/section/world-news/feed", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://www.huffpost.com/section/world-news/feed", "tag": "favorite"}
+{"action": "tag_feed", "url": "http://feeds.foxnews.com/foxnews/latest", "tag": "favorite"}
+{"action": "tag_feed", "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "tag": "favorite"}
+{"action": "untag_feed", "url": "http://feeds.foxnews.com/foxnews/latest", "tag": "favorite"}
+{"action": "untag_feed", "url": "https://www.huffpost.com/section/world-news/feed", "tag": "favorite"}

@@ -87,6 +87,42 @@ def _feeds_from_events(events: Iterable[dict]) -> List[str]:
     return feeds
 
 
+def _feed_tags_from_events(events: Iterable[dict]) -> dict[str, Set[str]]:
+    tags: dict[str, Set[str]] = {}
+    for evt in events:
+        action = evt.get("action")
+        url = str(evt.get("url", "")).strip()
+        tag = str(evt.get("tag", "")).strip().lower()
+        if action == "remove_feed" and url:
+            tags.pop(url, None)
+        if not url or not tag:
+            continue
+        if action == "tag_feed":
+            tags.setdefault(url, set()).add(tag)
+        elif action == "untag_feed":
+            current = tags.get(url)
+            if current and tag in current:
+                current.remove(tag)
+                if not current:
+                    tags.pop(url, None)
+    return tags
+
+
+def _favorite_feeds(events: Iterable[dict]) -> Set[str]:
+    tags = _feed_tags_from_events(events)
+    return {url for url, tagset in tags.items() if "favorite" in tagset}
+
+
+def _state_payload(events: Iterable[dict] | None = None) -> dict:
+    events_list = list(events) if events is not None else _load_events(LOG_PATH)
+    tags = _feed_tags_from_events(events_list)
+    return {
+        "feeds": _feeds_from_events(events_list),
+        "favorites": sorted(url for url, tagset in tags.items() if "favorite" in tagset),
+        "tags": {url: sorted(tagset) for url, tagset in tags.items() if tagset},
+    }
+
+
 def current_feeds() -> List[str]:
     return _feeds_from_events(_load_events(LOG_PATH))
 
@@ -212,17 +248,23 @@ def _collect_items(
     include_viewed: bool = False,
     viewed_ids: Set[str] | None = None,
     offset: int = 0,
+    allowed_feeds: Set[str] | None = None,
 ) -> tuple[List[dict], int]:
     viewed_ids = viewed_ids or set()
     if limit is not None and limit < 0:
         limit = 0
     offset = max(0, offset)
     feed_list = list(feeds)
+    allowed = set(feed_list if allowed_feeds is None else allowed_feeds)
     items = _load_cached_items()
     if not items:
         items = _refresh_cache(feed_list)
     else:
         items = list(items)
+    if allowed:
+        items = [i for i in items if i.get("feed") in allowed]
+    else:
+        items = []
     for item in items:
         item["_viewed"] = item.get("id") in viewed_ids
     if not include_viewed:
@@ -242,7 +284,7 @@ def _collect_items(
 
 @app.route("/api/feeds", methods=["GET"])
 def api_list_feeds():
-    return jsonify({"feeds": current_feeds()})
+    return jsonify(_state_payload())
 
 
 @app.route("/api/feeds", methods=["POST"])
@@ -254,11 +296,15 @@ def api_add_feed():
 
     feeds = current_feeds()
     if url in feeds:
-        return jsonify({"feeds": feeds, "message": "already present"})
+        state = _state_payload()
+        state["message"] = "already present"
+        return jsonify(state)
 
     _append_event(LOG_PATH, {"action": "add_feed", "url": url})
     _clear_cache()
-    return jsonify({"feeds": current_feeds(), "message": "added"}), 201
+    state = _state_payload()
+    state["message"] = "added"
+    return jsonify(state), 201
 
 
 @app.route("/api/feeds", methods=["DELETE"])
@@ -270,11 +316,15 @@ def api_delete_feed():
 
     feeds = current_feeds()
     if url not in feeds:
-        return jsonify({"feeds": feeds, "message": "not present"})
+        state = _state_payload()
+        state["message"] = "not present"
+        return jsonify(state)
 
     _append_event(LOG_PATH, {"action": "remove_feed", "url": url})
     _clear_cache()
-    return jsonify({"feeds": current_feeds(), "message": "removed"})
+    state = _state_payload()
+    state["message"] = "removed"
+    return jsonify(state)
 
 
 @app.route("/api/feeds/import", methods=["POST"])
@@ -298,20 +348,23 @@ def api_import_opml():
         if url:
             urls.append(url)
     if not urls:
-        return jsonify({"feeds": current_feeds(), "imported": 0, "message": "no feeds found"})
+        state = _state_payload()
+        state.update({"imported": 0, "message": "no feeds found"})
+        return jsonify(state)
     feeds = current_feeds()
     new_urls = [u for u in urls if u and u not in feeds]
     for url in new_urls:
         _append_event(LOG_PATH, {"action": "add_feed", "url": url})
     if new_urls:
         _clear_cache()
-    return jsonify(
+    state = _state_payload()
+    state.update(
         {
-            "feeds": current_feeds(),
             "imported": len(new_urls),
             "message": f"imported {len(new_urls)} new feeds",
         }
     )
+    return jsonify(state)
 
 @app.route("/api/feeds/export", methods=["GET"])
 def api_export_opml():
@@ -328,11 +381,29 @@ def api_export_opml():
 
 @app.route("/api/feeds/refresh", methods=["POST"])
 def api_refresh_feeds():
-    feeds = current_feeds()
+    events = _load_events(LOG_PATH)
+    feeds = _feeds_from_events(events)
     items = _refresh_cache(feeds)
-    return jsonify(
-        {"feeds": feeds, "items_cached": len(items), "message": "refreshed"}
-    )
+    state = _state_payload(events)
+    state.update({"items_cached": len(items), "message": "refreshed"})
+    return jsonify(state)
+
+
+@app.route("/api/feeds/tags", methods=["POST", "DELETE"])
+def api_feed_tags():
+    payload = request.get_json(silent=True) or {}
+    url = str(payload.get("url", "")).strip()
+    tag = str(payload.get("tag", "")).strip().lower()
+    if not url or not tag:
+        return jsonify({"error": "url and tag are required"}), 400
+    feeds = current_feeds()
+    if url not in feeds:
+        return jsonify({"error": "feed not present", "feeds": feeds}), 400
+    action = "tag_feed" if request.method == "POST" else "untag_feed"
+    _append_event(LOG_PATH, {"action": action, "url": url, "tag": tag})
+    state = _state_payload()
+    state["message"] = "tagged" if request.method == "POST" else "untagged"
+    return jsonify(state)
 
 
 @app.route("/", methods=["GET"])
@@ -351,10 +422,15 @@ def api_list_items():
     except (ValueError, TypeError):
         limit = 30
     events = _load_events(LOG_PATH)
+    feeds = _feeds_from_events(events)
     viewed_ids = _viewed_ids(events)
     include_viewed = (
         str(request.args.get("include_viewed", "")).lower() in {"1", "true", "yes", "on"}
     )
+    favorites_only = (
+        str(request.args.get("favorites_only", "")).lower() in {"1", "true", "yes", "on"}
+    )
+    favorite_feeds = _favorite_feeds(events)
     try:
         page = max(1, int(request.args.get("page", "1")))
     except (ValueError, TypeError):
@@ -362,12 +438,17 @@ def api_list_items():
     offset = 0
     if limit and limit > 0:
         offset = (page - 1) * limit
+    allowed_feeds = favorite_feeds if favorites_only else set(feeds)
+    if favorites_only and not allowed_feeds:
+        page_size = limit if limit and limit > 0 else 0
+        return jsonify({"items": [], "total": 0, "page": page, "page_size": page_size})
     items, total = _collect_items(
-        current_feeds(),
+        feeds,
         limit=limit,
         include_viewed=include_viewed,
         viewed_ids=viewed_ids,
         offset=offset,
+        allowed_feeds=allowed_feeds,
     )
     page_size = limit if limit and limit > 0 else total
     return jsonify(
