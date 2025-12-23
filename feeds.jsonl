@@ -40,3 +40,6 @@
 {"action": "add_feed", "url": "https://news.yahoo.com/rss/mostviewed"}
 {"action": "add_feed", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html"}
 {"action": "add_feed", "url": "https://rss.politico.com/playbook.xml"}
+{"action": "mark_viewed", "item_id": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml|https://www.nytimes.com/2025/12/22/well/fda-approves-wegovy-weight-loss-pill.html"}
+{"action": "add_feed", "url": "https://bsky.app/profile/did:plc:kqbyr4gqt6p2l57htlsa4nha/rss"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC3XTzVzaHQEd30rQbuvCtTQ"}
