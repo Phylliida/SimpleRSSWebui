@@ -88,22 +88,73 @@ def _feeds_from_events(events: Iterable[dict]) -> List[str]:
     return feeds
 
 
+def _folder_name(folder: object) -> str:
+    return str(folder or "").strip()
+
+
 def _folder_value(folder: object) -> str:
-    val = str(folder or "").strip()
+    val = _folder_name(folder)
     return val or DEFAULT_FOLDER
 
 
-def _folders_from_events(events: Iterable[dict]) -> Set[str]:
+def _folder_leaf(folder: object) -> str:
+    name = _folder_name(folder)
+    return name.rsplit("/", 1)[-1] if name else ""
+
+
+def _folder_path(name: object, parent: object | None = None) -> str:
+    clean_name = _folder_name(name)
+    parent_name = _folder_name(parent)
+    if not clean_name:
+        return ""
+    return f"{parent_name}/{clean_name}" if parent_name else clean_name
+
+
+def _resolve_folder(
+    folder: object, moves: Iterable[tuple[str, str]], default_on_empty: bool = True
+) -> str:
+    base = _folder_name(folder)
+    current = _folder_value(base) if default_on_empty else base
+    if not current and not default_on_empty:
+        return ""
+    for old, new in moves:
+        if not old:
+            continue
+        if current == old:
+            current = new
+        elif current.startswith(f"{old}/"):
+            current = f"{new}{current[len(old):]}"
+    return _folder_value(current) if default_on_empty else _folder_name(current)
+
+
+def _folders_from_events(events: Iterable[dict]) -> tuple[Set[str], list[tuple[str, str]]]:
     folders: Set[str] = set()
+    moves: list[tuple[str, str]] = []
     for evt in events:
         action = evt.get("action")
         if action == "add_folder":
-            name = _folder_value(evt.get("folder"))
-            folders.add(name)
-    return folders
+            name = _resolve_folder(evt.get("folder"), moves)
+            if name:
+                folders.add(name)
+        elif action == "move_folder":
+            old = _resolve_folder(evt.get("folder"), moves, default_on_empty=False)
+            if not old:
+                continue
+            parent = _folder_name(evt.get("parent"))
+            new_path = _resolve_folder(
+                _folder_path(_folder_leaf(old), parent), moves, default_on_empty=False
+            )
+            if new_path:
+                folders.discard(old)
+                folders.add(new_path)
+                moves.append((old, new_path))
+    return folders, moves
 
 
-def _feed_folders_from_events(events: Iterable[dict]) -> dict[str, str]:
+def _feed_folders_from_events(
+    events: Iterable[dict], moves: Iterable[tuple[str, str]] | None = None
+) -> dict[str, str]:
+    moves_list = list(moves or [])
     folders: dict[str, str] = {}
     for evt in events:
         url = str(evt.get("url", "")).strip()
@@ -113,12 +164,11 @@ def _feed_folders_from_events(events: Iterable[dict]) -> dict[str, str]:
         if action == "remove_feed":
             folders.pop(url, None)
             continue
+        if action not in {"add_feed", "move_feed"}:
+            continue
         folder = _folder_value(evt.get("folder"))
-        if action == "add_feed" and "folder" in evt:
-            folders[url] = folder
-        elif action == "move_feed":
-            folders[url] = folder
-    return folders
+        folders[url] = folder
+    return {url: _resolve_folder(folder, moves_list) for url, folder in folders.items()}
 
 
 def _feed_tags_from_events(events: Iterable[dict]) -> dict[str, Set[str]]:
@@ -150,12 +200,13 @@ def _favorite_feeds(events: Iterable[dict]) -> Set[str]:
 def _state_payload(events: Iterable[dict] | None = None) -> dict:
     events_list = list(events) if events is not None else _load_events(LOG_PATH)
     feeds = _feeds_from_events(events_list)
-    folders = _feed_folders_from_events(events_list)
+    folder_names_set, moves = _folders_from_events(events_list)
+    folders = _feed_folders_from_events(events_list, moves)
     if feeds and not folders:
         folders = {url: DEFAULT_FOLDER for url in feeds}
     for url in feeds:
         folders.setdefault(url, DEFAULT_FOLDER)
-    folder_names = sorted({DEFAULT_FOLDER, *folders.values(), *_folders_from_events(events_list)})
+    folder_names = sorted({DEFAULT_FOLDER, *folder_names_set, *folders.values()})
     tags = _feed_tags_from_events(events_list)
     return {
         "feeds": feeds,
@@ -453,8 +504,10 @@ def api_feed_tags():
 @app.route("/api/folders", methods=["POST"])
 def api_add_folder():
     payload = request.get_json(silent=True) or {}
-    folder = _folder_value(payload.get("name"))
-    if not folder:
+    name = _folder_name(payload.get("name"))
+    parent = _folder_name(payload.get("parent"))
+    folder = _folder_path(name, parent)
+    if not name:
         return jsonify({"error": "name is required"}), 400
     events = _load_events(LOG_PATH)
     existing = set(_state_payload(events).get("folders", []))
@@ -466,6 +519,35 @@ def api_add_folder():
     state = _state_payload()
     state["message"] = "folder created"
     return jsonify(state), 201
+
+
+@app.route("/api/folders/move", methods=["POST"])
+def api_move_folder():
+    payload = request.get_json(silent=True) or {}
+    folder = _folder_name(payload.get("folder"))
+    parent = _folder_name(payload.get("parent"))
+    if not folder or folder == DEFAULT_FOLDER:
+        return jsonify({"error": "folder is required"}), 400
+    events = _load_events(LOG_PATH)
+    folder_names, moves = _folders_from_events(events)
+    state = _state_payload(events)
+    existing = set(state.get("folders", []))
+    folder = _resolve_folder(folder, moves, default_on_empty=False)
+    parent = _resolve_folder(parent, moves, default_on_empty=False) if parent else ""
+    if folder not in existing:
+        return jsonify({"error": "folder not present"}), 400
+    if parent and (parent == folder or parent.startswith(f"{folder}/")):
+        return jsonify({"error": "invalid parent"}), 400
+    new_path = _folder_path(_folder_leaf(folder), parent)
+    new_path = _resolve_folder(new_path, moves, default_on_empty=False)
+    if new_path == folder:
+        state = _state_payload(events)
+        state["message"] = "no change"
+        return jsonify(state)
+    _append_event(LOG_PATH, {"action": "move_folder", "folder": folder, "parent": parent})
+    state = _state_payload()
+    state["message"] = "folder moved"
+    return jsonify(state)
 
 
 @app.route("/api/feeds/folder", methods=["POST"])
@@ -501,6 +583,7 @@ def api_list_items():
         limit = 30
     events = _load_events(LOG_PATH)
     feeds = _feeds_from_events(events)
+    folder_names_set, moves = _folders_from_events(events)
     viewed_ids = _viewed_ids(events)
     include_viewed = (
         str(request.args.get("include_viewed", "")).lower() in {"1", "true", "yes", "on"}
@@ -508,8 +591,8 @@ def api_list_items():
     favorites_only = (
         str(request.args.get("favorites_only", "")).lower() in {"1", "true", "yes", "on"}
     )
-    folder_filter = str(request.args.get("folder", "")).strip()
-    feed_folders = _feed_folders_from_events(events)
+    folder_filter = _resolve_folder(request.args.get("folder", ""), moves, default_on_empty=False)
+    feed_folders = _feed_folders_from_events(events, moves)
     for url in feeds:
         feed_folders.setdefault(url, DEFAULT_FOLDER)
     favorite_feeds = _favorite_feeds(events)
@@ -524,7 +607,11 @@ def api_list_items():
     if favorites_only:
         allowed_feeds &= favorite_feeds
     if folder_filter:
-        allowed_feeds &= {url for url, folder in feed_folders.items() if folder == folder_filter}
+        allowed_feeds &= {
+            url
+            for url, folder in feed_folders.items()
+            if folder == folder_filter or folder.startswith(f"{folder_filter}/")
+        }
     if (favorites_only or folder_filter) and not allowed_feeds:
         page_size = limit if limit and limit > 0 else 0
         return jsonify({"items": [], "total": 0, "page": page, "page_size": page_size})

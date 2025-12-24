@@ -347,7 +347,19 @@
       </label>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
         <input id="new-folder" type="text" name="new-folder" placeholder="New folder name" style="flex:1 1 220px;" />
+        <select id="new-folder-parent" style="min-width:160px;flex:0 0 auto;">
+          <option value="">Parent (root)</option>
+        </select>
         <button type="button" id="create-folder">Create folder</button>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        <select id="move-folder-select" style="min-width:200px;flex:1 1 200px;">
+          <option value="">Select folder</option>
+        </select>
+        <select id="move-folder-parent" style="min-width:160px;flex:0 0 auto;">
+          <option value="">New parent (root)</option>
+        </select>
+        <button type="button" id="move-folder">Move folder</button>
       </div>
       <div class="status" id="status"></div>
       <ul id="feeds" class="list"></ul>
@@ -381,7 +393,11 @@
     const favoritesOnlyInput = document.getElementById("favorites-only");
     const folderFilterSelect = document.getElementById("folder-filter");
     const newFolderInput = document.getElementById("new-folder");
+    const newFolderParentSelect = document.getElementById("new-folder-parent");
     const createFolderBtn = document.getElementById("create-folder");
+    const moveFolderSelect = document.getElementById("move-folder-select");
+    const moveFolderParentSelect = document.getElementById("move-folder-parent");
+    const moveFolderBtn = document.getElementById("move-folder");
     const pagers = Array.from(document.querySelectorAll(".pager"));
     const pageInfos = Array.from(document.querySelectorAll(".page-info"));
     const prevPageBtns = Array.from(document.querySelectorAll(".prev-page"));
@@ -403,18 +419,42 @@
     const starOutline = `<svg class="favorite-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="m7.625 6.4l2.8-3.625q.3-.4.713-.587T12 2t.863.188t.712.587l2.8 3.625l4.25 1.425q.65.2 1.025.738t.375 1.187q0 .3-.088.6t-.287.575l-2.75 3.9l.1 4.1q.025.875-.575 1.475t-1.4.6q-.05 0-.55-.075L12 19.675l-4.475 1.25q-.125.05-.275.063T6.975 21q-.8 0-1.4-.6T5 18.925l.1-4.125l-2.725-3.875q-.2-.275-.288-.575T2 9.75q0-.625.363-1.162t1.012-.763zM8.85 8.125L4 9.725L7.1 14.2L7 18.975l5-1.375l5 1.4l-.1-4.8L20 9.775l-4.85-1.65L12 4zM12 11.5"/></svg>`;
     const starFilled = `<svg class="favorite-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="m7.625 6.4l2.8-3.625q.3-.4.713-.587T12 2t.863.188t.712.587l2.8 3.625l4.25 1.425q.65.2 1.025.738t.375 1.187q0 .3-.088.6t-.287.575l-2.75 3.9l.1 4.1q.025.875-.575 1.475t-1.4.6q-.05 0-.55-.075L12 19.675l-4.475 1.25q-.125.05-.275.063T6.975 21q-.8 0-1.4-.6T5 18.925l.1-4.125l-2.725-3.875q-.2-.275-.288-.575T2 9.75q0-.625.363-1.162t1.012-.763z"/></svg>`;
 
-    const syncFolderFilter = () => {
-      const current = folderFilterSelect.value;
+    const syncFolderSelects = () => {
+      const filterCurrent = folderFilterSelect.value;
+      const parentCurrent = newFolderParentSelect.value;
+      const moveCurrent = moveFolderSelect.value;
+      const moveParentCurrent = moveFolderParentSelect.value;
       const values = Array.from(new Set([defaultFolder, ...folders]));
       values.sort((a, b) => a.localeCompare(b));
-      folderFilterSelect.innerHTML = `<option value="">All folders</option>` + values.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
-      folderFilterSelect.value = values.includes(current) ? current : "";
+      const optionList = values.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
+      folderFilterSelect.innerHTML = `<option value="">All folders</option>${optionList}`;
+      folderFilterSelect.value = values.includes(filterCurrent) ? filterCurrent : "";
+      const parentOptions = `<option value="">Parent (root)</option>${optionList}`;
+      newFolderParentSelect.innerHTML = parentOptions;
+      moveFolderParentSelect.innerHTML = parentOptions.replace("Parent (root)", "New parent (root)");
+      if (!values.includes(parentCurrent)) {
+        newFolderParentSelect.value = "";
+      } else {
+        newFolderParentSelect.value = parentCurrent;
+      }
+      moveFolderSelect.innerHTML = `<option value="">Select folder</option>${optionList}`;
+      moveFolderSelect.value = values.includes(moveCurrent) ? moveCurrent : "";
+      if (!values.includes(moveParentCurrent)) {
+        moveFolderParentSelect.value = "";
+      } else {
+        moveFolderParentSelect.value = moveParentCurrent;
+      }
     };
 
     const renderFeeds = (feeds, favorites = favoriteFeeds) => {
       favoriteFeeds = favorites instanceof Set ? favorites : new Set(favorites || []);
       const filter = folderFilterSelect.value || "";
-      const filtered = filter ? feeds.filter((url) => (feedFolders[url] || defaultFolder) === filter) : feeds;
+      const filtered = filter
+        ? feeds.filter((url) => {
+            const folder = feedFolders[url] || defaultFolder;
+            return folder === filter || folder.startsWith(`${filter}/`);
+          })
+        : feeds;
       const folderOptions = (current) => {
         const opts = Array.from(new Set([defaultFolder, ...folders, current]));
         opts.sort((a, b) => a.localeCompare(b));
@@ -449,9 +489,9 @@
       feedFolders = {};
       feeds.forEach((url) => { feedFolders[url] = incomingFolders[url] || defaultFolder; });
       folders = new Set([defaultFolder, ...(Array.isArray(data.folders) ? data.folders : []), ...Object.values(feedFolders)]);
-    syncFolderFilter();
-    renderFeeds(feeds, new Set(favorites));
-  };
+      syncFolderSelects();
+      renderFeeds(feeds, new Set(favorites));
+    };
 
     const formatTime = (value) => {
       if (!value) return "";
@@ -653,6 +693,7 @@
 
     createFolderBtn.addEventListener("click", () => {
       const name = (newFolderInput.value || "").trim();
+      const parent = (newFolderParentSelect.value || "").trim();
       if (!name) {
         setStatus("Folder name required", true);
         return;
@@ -662,18 +703,46 @@
       fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, parent }),
       })
         .then((r) => r.json().then((data) => ({ status: r.status, data })))
         .then(({ status, data }) => {
           if (status >= 400) throw new Error(data.error || "Failed");
           applyFeeds(data);
           newFolderInput.value = "";
+          newFolderParentSelect.value = parent || "";
           setStatus(data.message || "Folder created");
         })
         .catch((err) => setStatus(err.message || "Failed to create folder", true))
         .finally(() => {
           createFolderBtn.disabled = false;
+        });
+    });
+
+    moveFolderBtn.addEventListener("click", () => {
+      const folder = (moveFolderSelect.value || "").trim();
+      const parent = (moveFolderParentSelect.value || "").trim();
+      if (!folder) {
+        setStatus("Choose a folder to move", true);
+        return;
+      }
+      moveFolderBtn.disabled = true;
+      setStatus("Moving folder...");
+      fetch("/api/folders/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder, parent }),
+      })
+        .then((r) => r.json().then((data) => ({ status: r.status, data })))
+        .then(({ status, data }) => {
+          if (status >= 400) throw new Error(data.error || "Failed");
+          applyFeeds(data);
+          moveFolderParentSelect.value = parent || "";
+          setStatus(data.message || "Folder moved");
+        })
+        .catch((err) => setStatus(err.message || "Failed to move folder", true))
+        .finally(() => {
+          moveFolderBtn.disabled = false;
         });
     });
 

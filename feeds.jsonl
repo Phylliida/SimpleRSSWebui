@@ -117,3 +117,7 @@
 {"action": "add_folder", "folder": "Data Analysis"}
 {"action": "move_feed", "url": "https://ourworldindata.org/atom.xml", "folder": "Data Analysis"}
 {"action": "move_feed", "url": "https://ourworldindata.org/atom-data-insights.xml", "folder": "Data Analysis"}
+{"action": "move_folder", "folder": "Data Analysis", "parent": "Bees"}
+{"action": "move_feed", "url": "https://www.huffpost.com/section/world-news/feed", "folder": "Bees"}
+{"action": "move_folder", "folder": "News", "parent": "Bees"}
+{"action": "move_folder", "folder": "Bees/News", "parent": "Default"}
