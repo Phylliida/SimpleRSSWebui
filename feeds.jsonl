@@ -133,3 +133,5 @@
 {"action": "move_folder", "folder": "Bees/Data Analysis/Onion", "parent": ""}
 {"action": "move_folder", "folder": "News", "parent": "Bees/Data Analysis"}
 {"action": "move_folder", "folder": "Bees/Data Analysis/News", "parent": ""}
+{"action": "move_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC3XTzVzaHQEd30rQbuvCtTQ", "folder": "Bees"}
+{"action": "move_feed", "url": "https://bsky.app/profile/did:plc:kqbyr4gqt6p2l57htlsa4nha/rss", "folder": "Bees"}

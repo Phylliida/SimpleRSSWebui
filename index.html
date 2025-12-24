@@ -80,6 +80,7 @@
       text-decoration: none;
     }
     a:hover { text-decoration: underline; }
+    .hidden { display: none; }
     .list {
       list-style: none;
       padding: 0;
@@ -87,6 +88,70 @@
       display: grid;
       gap: 8px;
     }
+    .collapsible {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.55);
+      padding: 0;
+      overflow: hidden;
+    }
+    .collapsible summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.02);
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .collapsible[open] summary {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .collapsible summary::-webkit-details-marker { display: none; }
+    .collapsible .collapsible-body {
+      padding: 10px 12px 12px;
+      display: grid;
+      gap: 12px;
+    }
+    .collapsible .list {
+      padding: 10px 12px 12px;
+    }
+    .feeds-block {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.55);
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .feeds-panel {
+      padding: 10px 12px 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.01);
+    }
+    .feeds-panel .list { padding: 0; }
+    .spoiler-btn {
+      width: 100%;
+      text-align: left;
+      border: none;
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--fg);
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .feeds-block.open .spoiler-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .spoiler-arrow { transition: transform 120ms ease; display: inline-block; }
+    .spoiler-btn[aria-expanded="true"] .spoiler-arrow { transform: rotate(180deg); }
     .list li {
       padding: 10px 12px;
       background: rgba(15, 23, 42, 0.7);
@@ -291,49 +356,58 @@
       min-height: 20px;
       color: #a5f3fc;
       font-size: 14px;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
   </style>
 </head>
 <body>
     <div class="card">
-      <h1>RSS Sources</h1>
-      <p>Append new feeds to the log; the API exposes a simple list for feedparser/reader.</p>
-      <form id="feed-form">
-        <input id="feed-url" type="url" name="url" placeholder="https://example.com/feed.xml" required />
-        <input id="feed-folder" type="text" name="folder" placeholder="Folder (Default)" />
-        <button type="submit">Add feed</button>
-      </form>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
-        <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
-          <input id="opml-file" type="file" accept=".opml, text/xml" style="color:#cbd5e1;" />
-        </label>
-        <button type="button" id="import-opml">Import OPML</button>
-        <button type="button" id="export-opml">Export OPML</button>
-        <button type="button" id="refresh-feeds">Refresh feeds</button>
-      </div>
-      <label for="item-limit" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;color:#cbd5e1;">
-        Items to show (0 = all):
-        <input id="item-limit" type="number" min="0" value="50" style="width:90px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(15,23,42,0.8);color:var(--fg);" />
-      </label>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-        <input id="new-folder" type="text" name="new-folder" placeholder="New folder name" style="flex:1 1 220px;" />
-        <select id="new-folder-parent" style="min-width:160px;flex:0 0 auto;">
-          <option value="">Parent (root)</option>
-        </select>
-        <button type="button" id="create-folder">Create folder</button>
-      </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-        <select id="move-folder-select" style="min-width:200px;flex:1 1 200px;">
-          <option value="">Select folder</option>
-        </select>
-        <select id="move-folder-parent" style="min-width:160px;flex:0 0 auto;">
-          <option value="">New parent (root)</option>
-        </select>
-        <button type="button" id="move-folder">Move folder</button>
-      </div>
+      <h1>RSS Reader</h1>
       <div class="status" id="status"></div>
-      <ul id="feeds" class="list"></ul>
+      <details class="collapsible">
+        <summary>Manage feeds &amp; folders <span class="spoiler-arrow">▾</span></summary>
+        <div class="collapsible-body">
+          <form id="feed-form">
+            <input id="feed-url" type="url" name="url" placeholder="https://example.com/feed.xml" required />
+            <select id="feed-folder" name="folder" aria-label="Folder">
+              <option value="Default">Default</option>
+            </select>
+            <button type="submit">Add feed</button>
+          </form>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
+              <input id="opml-file" type="file" accept=".opml, text/xml" style="color:#cbd5e1;" />
+            </label>
+            <button type="button" id="import-opml">Import OPML</button>
+            <button type="button" id="export-opml">Export OPML</button>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <input id="new-folder" type="text" name="new-folder" placeholder="New folder name" style="flex:1 1 220px;" />
+            <select id="new-folder-parent" style="min-width:160px;flex:0 0 auto;">
+              <option value="">Parent (root)</option>
+            </select>
+            <button type="button" id="create-folder">Create folder</button>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <select id="move-folder-select" style="min-width:200px;flex:1 1 200px;">
+              <option value="">Select folder</option>
+            </select>
+            <select id="move-folder-parent" style="min-width:160px;flex:0 0 auto;">
+              <option value="">New parent (root)</option>
+            </select>
+            <button type="button" id="move-folder">Move folder</button>
+          </div>
+        </div>
+      </details>
+      <div id="feeds-block" class="feeds-block">
+        <button id="feeds-toggle" class="spoiler-btn" aria-expanded="false">
+          <span>Feed URLs <span id="feed-summary-label">(0)</span></span>
+          <span class="spoiler-arrow">▾</span>
+        </button>
+        <div id="feeds-panel" class="feeds-panel hidden">
+          <ul id="feeds" class="list"></ul>
+        </div>
+      </div>
       <div style="display:flex;flex-direction:column;gap:10px;margin:12px 0;">
         <label for="show-viewed" style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
           <input id="show-viewed" type="checkbox" />
@@ -345,6 +419,14 @@
             <option value="">All folders</option>
           </select>
         </label>
+      </div>
+      <label for="item-limit" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;color:#cbd5e1;">
+        Items to show (0 = all):
+        <input id="item-limit" type="number" min="0" value="50" style="width:90px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(15,23,42,0.8);color:var(--fg);" />
+      </label>
+      <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px;">
+        <button type="button" id="refresh-feeds">Refresh feeds</button>
+        <span id="last-refreshed" style="font-size:13px;color:#cbd5e1;">Last refreshed: —</span>
       </div>
       <div class="items-header">
         <h2>Items</h2>
@@ -365,6 +447,11 @@
     const feedList = document.getElementById("feeds");
     const itemsList = document.getElementById("items");
     const statusBox = document.getElementById("status");
+    const feedSummaryLabel = document.getElementById("feed-summary-label");
+    const feedsBlock = document.getElementById("feeds-block");
+    const feedsToggle = document.getElementById("feeds-toggle");
+    const feedsPanel = document.getElementById("feeds-panel");
+    const lastRefreshedLabel = document.getElementById("last-refreshed");
     const urlInput = document.getElementById("feed-url");
     const feedFolderInput = document.getElementById("feed-folder");
     const opmlInput = document.getElementById("opml-file");
@@ -384,14 +471,35 @@
     const pageInfos = Array.from(document.querySelectorAll(".page-info"));
     const prevPageBtns = Array.from(document.querySelectorAll(".prev-page"));
     const nextPageBtns = Array.from(document.querySelectorAll(".next-page"));
-    let currentPage = 1;
+    const hashParams = () => new URLSearchParams((location.hash || "").replace(/^#/, ""));
+    const initialParams = hashParams();
+    const parsePositiveInt = (val, fallback) => {
+      const n = parseInt(val, 10);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+    let currentPage = parsePositiveInt(initialParams.get("page"), 1);
     let totalItems = 0;
     let feedListCache = [];
     let feedFolders = {};
     let feedTitles = {};
+    let lastRefreshAt = null;
+    let pendingFolderFromHash = (initialParams.get("folder") || "").trim();
+    let appliedFolderFromHash = false;
+    let suppressHashChange = false;
     const defaultFolder = "Default";
     let folders = new Set([defaultFolder]);
     feedFolderInput.value = defaultFolder;
+    const initialLimit = parsePositiveInt(initialParams.get("limit"), null);
+    if (initialLimit !== null && itemLimitInput) {
+      itemLimitInput.value = initialLimit;
+    }
+    if (feedsToggle) {
+      feedsToggle.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        const open = feedsToggle.getAttribute("aria-expanded") === "true";
+        setFeedsOpen(!open);
+      });
+    }
     const esc = (text = "") =>
       text.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
     const safeUrl = (url = "") =>
@@ -399,6 +507,61 @@
     const feedLabel = (url = "") => {
       const label = feedTitles[url];
       return typeof label === "string" && label.trim() ? label : url;
+    };
+    const formatAgo = (ms) => {
+      const sec = Math.max(0, Math.floor(ms / 1000));
+      if (sec < 60) return `${sec}s ago`;
+      const min = Math.floor(sec / 60);
+      if (min < 60) return `${min}m ago`;
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return `${hr}h ago`;
+      const day = Math.floor(hr / 24);
+      return `${day}d ago`;
+    };
+    const renderLastRefreshed = () => {
+      if (!lastRefreshedLabel) return;
+      if (!lastRefreshAt) {
+        lastRefreshedLabel.textContent = "Last refreshed: —";
+        return;
+      }
+      const opts = { dateStyle: "short", timeStyle: "short" };
+      const ago = formatAgo(Date.now() - lastRefreshAt.getTime());
+      lastRefreshedLabel.textContent = `Last refreshed: ${lastRefreshAt.toLocaleString(undefined, opts)} (${ago})`;
+    };
+    const updateLastRefreshed = (value) => {
+      if (!value) {
+        lastRefreshAt = null;
+      } else if (value instanceof Date) {
+        lastRefreshAt = value;
+      } else {
+        const parsed = new Date(value);
+        lastRefreshAt = Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+      renderLastRefreshed();
+    };
+    renderLastRefreshed();
+    setInterval(renderLastRefreshed, 30000);
+    const setFeedsOpen = (isOpen) => {
+      if (!feedsToggle || !feedsPanel) return;
+      feedsToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      feedsPanel.classList.toggle("hidden", !isOpen);
+      if (feedsBlock) {
+        feedsBlock.classList.toggle("open", isOpen);
+      }
+    };
+    const updateHash = () => {
+      const params = new URLSearchParams();
+      const folder = folderFilterSelect.value || "";
+      const limit = parseInt(itemLimitInput.value, 10);
+      if (folder) params.set("folder", folder);
+      if (Number.isFinite(limit) && limit > 0) params.set("limit", limit);
+      if (currentPage > 1) params.set("page", currentPage);
+      const nextHash = params.toString();
+      const target = nextHash ? `#${nextHash}` : "";
+      if (location.hash === target) return;
+      suppressHashChange = true;
+      location.hash = target;
+      setTimeout(() => { suppressHashChange = false; }, 0);
     };
     const viewedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M1.606 6.08a1 1 0 0 1 1.313.526L2 7l.92-.394v-.001l.003.009l.021.045l.094.194c.086.172.219.424.4.729a13.4 13.4 0 0 0 1.67 2.237a12 12 0 0 0 .59.592C7.18 11.8 9.251 13 12 13a8.7 8.7 0 0 0 3.22-.602c1.227-.483 2.254-1.21 3.096-1.998a13 13 0 0 0 2.733-3.725l.027-.058l.005-.011a1 1 0 0 1 1.838.788L22 7l.92.394l-.003.005l-.004.008l-.011.026l-.04.087a14 14 0 0 1-.741 1.348a15.4 15.4 0 0 1-1.711 2.256l.797.797a1 1 0 0 1-1.414 1.415l-.84-.84a12 12 0 0 1-1.897 1.256l.782 1.202a1 1 0 1 1-1.676 1.091l-.986-1.514c-.679.208-1.404.355-2.176.424V16.5a1 1 0 0 1-2 0v-1.544c-.775-.07-1.5-.217-2.177-.425l-.985 1.514a1 1 0 0 1-1.676-1.09l.782-1.203c-.7-.37-1.332-.8-1.897-1.257l-.84.84a1 1 0 0 1-1.414-1.414l.797-.797a15.4 15.4 0 0 1-1.87-2.519a14 14 0 0 1-.591-1.107l-.033-.072l-.01-.021l-.002-.007l-.001-.002v-.001C1.08 7.395 1.08 7.394 2 7l-.919.395a1 1 0 0 1 .525-1.314" clip-rule="evenodd"/></svg>`;
     const unviewedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4s7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20s-7.028-2.5-8.725-4.704Z"/><path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z"/></g></svg>`;
@@ -415,6 +578,8 @@
       const parentOptions = `<option value="">Parent (root)</option>${optionList}`;
       newFolderParentSelect.innerHTML = parentOptions;
       moveFolderParentSelect.innerHTML = parentOptions.replace("Parent (root)", "New parent (root)");
+      feedFolderInput.innerHTML = optionList;
+      feedFolderInput.value = values.includes(feedFolderInput.value) ? feedFolderInput.value : defaultFolder;
       if (!values.includes(parentCurrent)) {
         newFolderParentSelect.value = "";
       } else {
@@ -437,6 +602,9 @@
             return folder === filter || folder.startsWith(`${filter}/`);
           })
         : feeds;
+      if (feedSummaryLabel) {
+        feedSummaryLabel.textContent = `(${filtered.length})`;
+      }
       const folderOptions = (current) => {
         const opts = Array.from(new Set([defaultFolder, ...folders, current]));
         opts.sort((a, b) => a.localeCompare(b));
@@ -473,11 +641,19 @@
         if (typeof title === "string" && title.trim()) acc[url] = title;
         return acc;
       }, {});
+      if (feedSummaryLabel) {
+        feedSummaryLabel.textContent = `(${feeds.length})`;
+      }
       feedListCache = feeds;
       feedFolders = {};
       feeds.forEach((url) => { feedFolders[url] = incomingFolders[url] || defaultFolder; });
       folders = new Set([defaultFolder, ...(Array.isArray(data.folders) ? data.folders : []), ...Object.values(feedFolders)]);
       syncFolderSelects();
+      if (!appliedFolderFromHash && pendingFolderFromHash) {
+        const hasFolder = Array.from(folderFilterSelect.options).some((opt) => opt.value === pendingFolderFromHash);
+        folderFilterSelect.value = hasFolder ? pendingFolderFromHash : "";
+        appliedFolderFromHash = true;
+      }
       renderFeeds(feeds);
     };
 
@@ -574,7 +750,10 @@
     const fetchFeeds = () =>
       fetch("/api/feeds")
         .then((r) => r.json())
-        .then((data) => applyFeeds(data))
+        .then((data) => {
+          applyFeeds(data);
+          updateLastRefreshed(data.last_refreshed);
+        })
         .catch(() => setStatus("Failed to load feeds", true));
 
     const fetchItems = () => {
@@ -620,8 +799,10 @@
             return fetchItems();
           }
           currentPage = pageFromServer;
+          updateHash();
           renderItems(items);
           updatePager(maxPage);
+          updateLastRefreshed(data.last_refreshed);
         })
         .catch(() => setStatus("Failed to load items", true));
     };
@@ -815,6 +996,7 @@
 
     itemLimitInput.addEventListener("change", () => {
       currentPage = 1;
+      updateHash();
       fetchItems();
     });
     showViewedInput.addEventListener("change", () => {
@@ -824,6 +1006,7 @@
     folderFilterSelect.addEventListener("change", () => {
       currentPage = 1;
       renderFeeds(feedListCache);
+      updateHash();
       fetchItems();
     });
     prevPageBtns.forEach((btn) =>
@@ -843,6 +1026,24 @@
         fetchItems();
       })
     );
+
+    const applyHashState = () => {
+      if (suppressHashChange) return;
+      const params = hashParams();
+      const folder = (params.get("folder") || "").trim();
+      const page = parsePositiveInt(params.get("page"), 1);
+      const limit = parsePositiveInt(params.get("limit"), null);
+      if (limit !== null) {
+        itemLimitInput.value = limit;
+      }
+      pendingFolderFromHash = folder;
+      appliedFolderFromHash = false;
+      currentPage = page;
+      renderFeeds(feedListCache);
+      fetchItems();
+    };
+
+    window.addEventListener("hashchange", applyHashState);
 
     itemsList.addEventListener("click", (ev) => {
       const btn = ev.target.closest("button.mark-toggle");

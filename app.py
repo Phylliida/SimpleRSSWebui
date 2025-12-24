@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import datetime, timezone
 from html import escape
 from io import BytesIO
 from pathlib import Path
@@ -70,6 +71,15 @@ def _save_cache(items: List[dict]) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with CACHE_ITEMS_PATH.open("w", encoding="utf-8") as handle:
         json.dump(items, handle)
+
+
+def _cache_last_refreshed() -> str | None:
+    try:
+        stamp = CACHE_ITEMS_PATH.stat().st_mtime
+    except (FileNotFoundError, OSError):
+        return None
+    dt = datetime.fromtimestamp(stamp, tz=timezone.utc).replace(microsecond=0)
+    return dt.isoformat()
 
 
 def _is_youtube_feed(url: str) -> bool:
@@ -269,6 +279,7 @@ def _state_payload(events: Iterable[dict] | None = None) -> dict:
         "favorites": sorted(url for url, tagset in tags.items() if "favorite" in tagset),
         "tags": {url: sorted(tagset) for url, tagset in tags.items() if tagset},
         "feed_titles": feed_titles,
+        "last_refreshed": _cache_last_refreshed(),
     }
 
 
@@ -671,7 +682,15 @@ def api_list_items():
         }
     if (favorites_only or folder_filter) and not allowed_feeds:
         page_size = limit if limit and limit > 0 else 0
-        return jsonify({"items": [], "total": 0, "page": page, "page_size": page_size})
+        return jsonify(
+            {
+                "items": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "last_refreshed": _cache_last_refreshed(),
+            }
+        )
     items, total, feed_titles = _collect_items(
         feeds,
         limit=limit,
@@ -688,6 +707,7 @@ def api_list_items():
             "page": page,
             "page_size": page_size,
             "feed_titles": {url: title for url, title in feed_titles.items() if url in feeds},
+            "last_refreshed": _cache_last_refreshed(),
         }
     )
 
