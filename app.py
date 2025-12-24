@@ -15,11 +15,13 @@ from datetime import datetime, timezone
 from html import escape
 from io import BytesIO
 from pathlib import Path
+from collections import deque
 from typing import Iterable, List, Set
 from urllib.parse import parse_qs, urlparse
 
 import feedparser
 import listparser
+import requests
 from flask import Flask, jsonify, request, send_file
 
 app = Flask(__name__)
@@ -33,6 +35,10 @@ CACHE_DIR = Path(
 )
 CACHE_ITEMS_PATH = CACHE_DIR / "items.json"
 DEFAULT_FOLDER = "Default"
+BSKY_API_BASE = "https://public.api.bsky.app/xrpc"
+_BSKY_RATE_WINDOW = 1.0
+_BSKY_RATE_MAX = 35
+_bsky_rate_calls: deque[float] = deque(maxlen=_BSKY_RATE_MAX)
 
 
 def _load_events(path: Path) -> List[dict]:
@@ -399,24 +405,145 @@ def _thumbnail_from_entry(entry: dict) -> str:
     return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
 
 
+def _bluesky_handle_rkey_from_link(link: str) -> tuple[str, str] | None:
+    try:
+        parsed = urlparse(link)
+    except Exception:
+        return None
+    host = (parsed.hostname or "").lower()
+    if "bsky.app" not in host:
+        return None
+    parts = (parsed.path or "").strip("/").split("/")
+    if len(parts) >= 4 and parts[0] == "profile" and parts[2] == "post":
+        return parts[1], parts[3]
+    return None
+
+
+def _bluesky_summary_html(bluesky_json: dict, link: str | None = None) -> str:
+    try:
+        thread = bluesky_json.get("thread", {}) or {}
+        post = thread.get("post", {}) or {}
+        author = post.get("author", {}) or {}
+        record = post.get("record", {}) or {}
+        text = str(record.get("text", "") or "")
+        avatar = str(author.get("avatar", "") or "")
+        uri_link = link or post.get("uri") or ""
+        reply = post.get("replyCount", 0)
+        repost = post.get("repostCount", 0)
+        like = post.get("likeCount", 0)
+        quote = post.get("quoteCount", 0)
+        embed_view = post.get("embed") or record.get("embed") or {}
+        images = []
+        if isinstance(embed_view, dict) and embed_view.get("$type", "").startswith("app.bsky.embed.images"):
+            for img in embed_view.get("images", []):
+                if not isinstance(img, dict):
+                    continue
+                src = img.get("fullsize") or img.get("thumb") or ""
+                if src:
+                    images.append((src, img.get("alt") or ""))
+        text_html = escape(text).replace("\n", "<br/>")
+        parts: list[str] = []
+        if text:
+            parts.append(f"<div>{text_html}</div>")
+        if images:
+            img_tags = "".join(
+                f'<div><img src="{escape(src)}" alt="{escape(alt)}" style="max-width:100%;height:auto;"/></div>'
+                for src, alt in images
+            )
+            parts.append(img_tags)
+        parts.append(
+            f"<div><small>Replies: {reply} · Reposts: {repost} · Likes: {like} · Quotes: {quote}</small></div>"
+        )
+        if uri_link:
+            safe_link = escape(uri_link)
+            parts.append(f'<div><a href="{safe_link}" target="_blank" rel="noopener">Open post</a></div>')
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
+def _bsky_rate_limit():
+    now = time.time()
+    if len(_bsky_rate_calls) == _BSKY_RATE_MAX:
+        earliest = _bsky_rate_calls[0]
+        elapsed = now - earliest
+        if elapsed < _BSKY_RATE_WINDOW:
+            time.sleep(_BSKY_RATE_WINDOW - elapsed)
+    _bsky_rate_calls.append(time.time())
+
+
+def _fetch_bluesky_post_json(link: str) -> dict | None:
+    parsed = _bluesky_handle_rkey_from_link(link)
+    if not parsed:
+        return None
+    handle, rkey = parsed
+    try:
+        _bsky_rate_limit()
+        did_resp = requests.get(
+            f"{BSKY_API_BASE}/com.atproto.identity.resolveHandle",
+            params={"handle": handle},
+            timeout=10,
+        )
+        did_resp.raise_for_status()
+        did = did_resp.json().get("did")
+        if not did:
+            return None
+        _bsky_rate_limit()
+        at_uri = f"at://{did}/app.bsky.feed.post/{rkey}"
+        post_resp = requests.get(
+            f"{BSKY_API_BASE}/app.bsky.feed.getPostThread",
+            params={"uri": at_uri},
+            timeout=10,
+        )
+        post_resp.raise_for_status()
+        return post_resp.json()
+    except Exception:
+        return None
+
+
 def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
     title = entry.get("title")
     display_feed_title = _display_feed_title(feed_url, feed_title)
     ids = _entry_id(feed_url, entry)
     if not title:
         title = _entry_author(entry) or (display_feed_title or (_entry_id(feed_url, entry) or "(no title)"))
-    return {
+    link = entry.get("link")
+    bluesky_json = _fetch_bluesky_post_json(link) if link else None
+    bluesky_author_avatar = ""
+    bluesky_author_handle = ""
+    bluesky_author_display = ""
+    summary_value = entry.get("summary") or entry.get("description") or ""
+    if bluesky_json:
+        summary_value = _bluesky_summary_html(bluesky_json, link) or json.dumps(bluesky_json)
+        post = (bluesky_json.get("thread") or {}).get("post") or {}
+        author = post.get("author") or {}
+        bluesky_author_avatar = str(author.get("avatar") or "").strip()
+        bluesky_author_handle = str(author.get("handle") or "").strip()
+        bluesky_author_display = str(author.get("displayName") or bluesky_author_handle or "").strip()
+        author_title = str(author.get("displayName") or author.get("handle") or "").strip()
+        if author_title:
+            title = author_title
+    item = {
         "feed": feed_url,
         "feed_title": display_feed_title,
         "id": ids,
         "title": title,
-        "link": entry.get("link"),
+        "link": link,
         "published": entry.get("published") or entry.get("updated") or "",
-        "summary": entry.get("summary") or entry.get("description") or "",
+        "summary": summary_value,
         "thumbnail": _thumbnail_from_entry(entry),
         "_ts": _entry_timestamp(entry),
         "_viewed": False,
     }
+    if bluesky_json is not None:
+        item["bluesky_json"] = bluesky_json
+    if bluesky_author_avatar:
+        item["bluesky_author_avatar"] = bluesky_author_avatar
+    if bluesky_author_handle:
+        item["bluesky_author_handle"] = bluesky_author_handle
+    if bluesky_author_display:
+        item["bluesky_author_display"] = bluesky_author_display
+    return item
 
 
 def _gather_feed_items(feeds: Iterable[str]) -> List[dict]:

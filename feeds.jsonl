@@ -168,3 +168,8 @@
 {"action": "remove_folder", "folder": "News"}
 {"action": "remove_folder", "folder": "Onion"}
 {"action": "remove_folder", "folder": "News"}
+{"action": "add_feed", "url": "https://bsky.app/profile/hankgreen.bsky.social", "folder": "Favs/Game Dev"}
+{"action": "remove_feed", "url": "https://bsky.app/profile/hankgreen.bsky.social"}
+{"action": "add_feed", "url": "https://bsky.app/profile/hankgreen.bsky.social/rss", "folder": "Favs/Game Dev"}
+{"action": "add_folder", "folder": "Favs/YouTube/News"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC3XTzVzaHQEd30rQbuvCtTQ", "folder": "Favs/YouTube/News"}

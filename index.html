@@ -212,6 +212,18 @@
       font-weight: 700;
       line-height: 1.3;
     }
+    .item-title.with-avatar {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .item-title .item-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      object-fit: cover;
+      flex: 0 0 auto;
+    }
     .meta {
       color: #cbd5e1;
       font-size: 14px;
@@ -760,13 +772,24 @@
         const title = esc(titleText);
         const safeLink = esc(item.link || "");
         const link = item.link ? `<a href="${safeLink}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
+        const blueskyAvatarUrl = safeUrl(item.bluesky_author_avatar || "");
+        const blueskyAvatarAlt = esc(item.bluesky_author_display || item.bluesky_author_handle || titleText || "Author");
+        const avatar = blueskyAvatarUrl
+          ? `<img class="item-avatar" src="${esc(blueskyAvatarUrl)}" alt="${blueskyAvatarAlt}" loading="lazy" />`
+          : "";
+        const titleBlock = blueskyAvatarUrl
+          ? `<div class="item-title with-avatar">${avatar}${link}</div>`
+          : `<div class="item-title">${link}</div>`;
         const thumbUrl = safeUrl(item.thumbnail || "");
         const thumb = thumbUrl ? `<div class="thumb-wrap"><img class="thumb" src="${esc(thumbUrl)}" alt="" loading="lazy" /></div>` : "";
         const feedNameRaw = feedTitles[item.feed] || item.feed_title || item.feed;
         const feedName = typeof feedNameRaw === "string" ? feedNameRaw : "";
         const showFeedName = feedName && feedName.trim().toLowerCase() !== titleText.trim().toLowerCase();
+        const blueskyHandleRaw = typeof item.bluesky_author_handle === "string" ? item.bluesky_author_handle.trim() : "";
+        const blueskyHandle = blueskyHandleRaw ? (blueskyHandleRaw.startsWith("@") ? blueskyHandleRaw : `@${blueskyHandleRaw}`) : "";
         const metaBits = [];
-        if (showFeedName) metaBits.push(esc(feedName));
+        if (blueskyHandle) metaBits.push(esc(blueskyHandle));
+        else if (showFeedName) metaBits.push(esc(feedName));
         const published = formatTime(item.published);
         if (published) metaBits.push(esc(published));
         const meta = metaBits.length ? `<div class="meta">${metaBits.join(" · ")}</div>` : "";
@@ -784,7 +807,7 @@
           <div class="item-head">
             ${thumb}
             <div class="item-main">
-              <div class="item-title">${link}</div>
+              ${titleBlock}
               ${meta}
             </div>
             ${mark}
