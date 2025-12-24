@@ -555,6 +555,10 @@
     if (initialLimit !== null && itemLimitInput) {
       itemLimitInput.value = initialLimit;
     }
+    const initialIncludeViewed = (initialParams.get("include_viewed") || "").toLowerCase();
+    if (showViewedInput) {
+      showViewedInput.checked = ["1", "true", "yes", "on"].includes(initialIncludeViewed);
+    }
     if (feedsToggle) {
       feedsToggle.addEventListener("click", (ev) => {
         ev.preventDefault();
@@ -644,8 +648,10 @@
       const folder = folderFilterSelect.value || "";
       const limit = parseInt(itemLimitInput.value, 10);
       const addFolder = (feedFolderInput.value || "").trim();
+      const showViewed = showViewedInput && showViewedInput.checked;
       if (folder) params.set("folder", folder);
       if (addFolder) params.set("add_folder", addFolder);
+      if (showViewed) params.set("include_viewed", "1");
       if (Number.isFinite(limit) && limit > 0) params.set("limit", limit);
       if (currentPage > 1) params.set("page", currentPage);
       const nextHash = params.toString();
@@ -1168,7 +1174,6 @@
       fetchItems();
     });
     showViewedInput.addEventListener("change", () => {
-      currentPage = 1;
       fetchItems();
     });
     folderFilterSelect.addEventListener("change", () => {
@@ -1202,6 +1207,10 @@
       const page = parsePositiveInt(params.get("page"), 1);
       const limit = parsePositiveInt(params.get("limit"), null);
       const addFolder = (params.get("add_folder") || "").trim();
+      const includeViewed = (params.get("include_viewed") || "").toLowerCase();
+      if (showViewedInput) {
+        showViewedInput.checked = ["1", "true", "yes", "on"].includes(includeViewed);
+      }
       if (limit !== null) {
         itemLimitInput.value = limit;
       }
