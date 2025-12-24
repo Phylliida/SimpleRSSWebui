@@ -177,3 +177,75 @@
 {"action": "add_folder", "folder": "Favs/YouTube/Maths"}
 {"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCiNLr9wX35KksK77mrQgxiw", "folder": "Favs/YouTube/Maths"}
 {"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC7EUiC7Jl-1rzwuepuIz5vw", "folder": "Favs/YouTube/Maths"}
+{"action": "remove_feed", "url": "https://ourworldindata.org/atom.xml"}
+{"action": "remove_feed", "url": "https://ourworldindata.org/atom-data-insights.xml"}
+{"action": "remove_feed", "url": "https://bsky.app/profile/did:plc:kqbyr4gqt6p2l57htlsa4nha/rss"}
+{"action": "remove_feed", "url": "https://bsky.app/profile/hankgreen.bsky.social/rss"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCe0iAfs-GMrx92OYZJ3udbA", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCHv1q35tKUJiSWO9W2OQRhw", "folder": "Favs/YouTube/Maths"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCV5vCi3jPJdURZwAOO_FNfQ", "folder": "Favs/YouTube/Makers"}
+{"action": "add_folder", "folder": "Favs/YouTube/Makers/Redstone"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCz7mxur_emoA8fl9kvizgtA", "folder": "Favs/YouTube/Makers/Redstone"}
+{"action": "add_folder", "folder": "Favs/YouTube/Science"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCEIwxahdLz7bap-VDs9h35A", "folder": "Favs/YouTube/Science"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCJZt93WO-evfsfi7YlVmrQA", "folder": "Favs/YouTube/Maths"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA", "folder": "Favs/YouTube/Science"}
+{"action": "add_folder", "folder": "Favs/YouTube/Minecraft"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCqrlilQbdyr8mqbIBE9-kCg", "folder": "Favs/YouTube/Minecraft"}
+{"action": "add_folder", "folder": "Favs/YouTube/Gaming"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCtUbO6rBht0daVIOGML3c8w", "folder": "Favs/YouTube/Gaming"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCDRhoKKIzUZrJPzLCHo9s-w", "folder": "Favs/YouTube/Maths"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCshObcm-nLhbu8MY50EZ5Ng", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC89AgkG34oooZubVt23wzFw", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCfIqCzQJXvYj9ssCoHq327g", "folder": "Favs/YouTube/Makers"}
+{"action": "add_folder", "folder": "Favs/YouTube/General"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCYAm24PkejQR2xMgJgn7xwg", "folder": "Favs/YouTube/General"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCFXc5nAao6554AIXlN9KgwQ", "folder": "Favs/YouTube/Gaming"}
+{"action": "add_folder", "folder": "Favs/YouTube/Programming"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCQG40havu4kNpB4pxUDQhYQ", "folder": "Favs/YouTube/Programming"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCwBhBDsqiQflTMLy2epbQVw", "folder": "Favs/YouTube/Programming"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCJnw87XnUheWRQ1hqGTUKqA", "folder": "Favs/YouTube/Gaming"}
+{"action": "add_folder", "folder": "Favs/YouTube/Music"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCXP8EGuRCDBdqFz2zcKsvoQ", "folder": "Favs/YouTube/Music"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9veLGugGBoUHRvL2T9RUYA", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCJYJgj7rzsn0vdR7fkgjuIA", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC4QZ_LsYcvcq7qOsOhpAX4A", "folder": "Favs/YouTube/General"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsaGKqPZnGp_7N80hcHySGQ", "folder": "Favs/YouTube/General"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC6IxnFzHofFJ5X2PycSMsww", "folder": "Favs/YouTube/Science"}
+{"action": "add_folder", "folder": "Favs/YouTube/Game Dev"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCAGhh86JuPOIm7GeKpRpZlw", "folder": "Favs/YouTube/Game Dev"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCcXhhVwCT6_WqjkEniejRJQ", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC-FHoOa_jNSZy3IFctMEq2w", "folder": "Favs/YouTube/Gaming"}
+{"action": "add_folder", "folder": "Favs/YouTube/Funny"}
+{"action": "remove_folder", "folder": "Favs/YouTube/Funny"}
+{"action": "add_folder", "folder": "Favs/YouTube/Memes"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCRei8TBpt4r0WPZ7MkiKmVg", "folder": "Favs/YouTube/Memes"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCJXa3_WNNmIpewOtCHf3B0g", "folder": "Favs/YouTube/Programming"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC0AJ676UuHdQ0zshDEkyfTA", "folder": "Favs/YouTube/Programming"}
+{"action": "add_folder", "folder": "Favs/YouTube/AI"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCB6y9VskHTkeZJ0vqVQpFzA", "folder": "Favs/YouTube/AI"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCrFaMm4_BsONkem5pEn77Eg", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCSUf5_EPEfl4zlBKZHkZdmw", "folder": "Favs/YouTube/General"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC_4YBM08hcpJqLl3vvgTqXg", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCwlxcFhNFcN5xzQTwqjSc6A", "folder": "Favs/YouTube/Gaming"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCnZx--LpG2spgmlxOcC-DRA", "folder": "Favs/YouTube/Memes"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCmHz7DQbbkcY_UoWY8bBJLw", "folder": "Favs/YouTube/Music"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCPP3VjezoWQAuzAgVb1es7A", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCgfe2ooZD3VJPB6aJAnuQng", "folder": "Favs/YouTube/AI"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCw4BFxLFguznor-MnYNwGTg", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCtmQXDap14jE05-MAxPlAsw", "folder": "Favs/YouTube/Game Dev"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCx6kBc-lI6YxtpwQCYwFFig", "folder": "Favs/YouTube/Science"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsXVk37bltHxD1rDPwtNM8Q", "folder": "Favs/YouTube/Science"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCMLtBahI5DMrt0NPvDSoIRQ", "folder": "Favs/YouTube/AI"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCv_zm49u-RjnCJVwhUO-ecA", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg", "folder": "Favs/YouTube/Science"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCjONLy4oUaBC9fJENAiZKWg", "folder": "Favs/YouTube/Makers"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCEaEuLUvy4Y1DqpxiDvnxeQ", "folder": "Favs/YouTube/Science"}
+{"action": "add_feed", "url": "https://www.youtube.com/@SymmetricVision", "folder": "Favs/YouTube/Programming"}
+{"action": "mark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UCQG40havu4kNpB4pxUDQhYQ|yt:video:JstW96GM1TQ"}
+{"action": "mark_viewed", "item_id": "https://bsky.app/profile/freya.bsky.social/rss|at://did:plc:5nq3pybl4nnoxfp3ovjy2lh7/app.bsky.feed.post/3ma2zgj4w7c27"}
+{"action": "mark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UCV5vCi3jPJdURZwAOO_FNfQ|yt:video:w8JuHaRQmUs"}
+{"action": "mark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UCRei8TBpt4r0WPZ7MkiKmVg|yt:video:tPgx6x_rJD8"}
+{"action": "mark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsaGKqPZnGp_7N80hcHySGQ|yt:video:g3IAXRkyl1s"}
+{"action": "mark_viewed", "item_id": "https://bsky.app/profile/freya.bsky.social/rss|at://did:plc:5nq3pybl4nnoxfp3ovjy2lh7/app.bsky.feed.post/3ma2frgqxbk27"}
+{"action": "mark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UC89AgkG34oooZubVt23wzFw|yt:video:X6IdcV0HAHY"}

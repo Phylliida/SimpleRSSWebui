@@ -40,6 +40,9 @@ BSKY_API_BASE = "https://public.api.bsky.app/xrpc"
 _BSKY_RATE_WINDOW = 1.0
 _BSKY_RATE_MAX = 35
 _bsky_rate_calls: deque[float] = deque(maxlen=_BSKY_RATE_MAX)
+_FEED_RATE_WINDOW = 1.0
+_FEED_RATE_MAX = 3
+_feed_rate_calls: deque[float] = deque(maxlen=_FEED_RATE_MAX)
 
 
 def _load_events(path: Path) -> List[dict]:
@@ -507,6 +510,16 @@ def _bsky_rate_limit():
     _bsky_rate_calls.append(time.time())
 
 
+def _feed_rate_limit():
+    now = time.time()
+    if len(_feed_rate_calls) == _FEED_RATE_MAX:
+        earliest = _feed_rate_calls[0]
+        elapsed = now - earliest
+        if elapsed < _FEED_RATE_WINDOW:
+            time.sleep(_FEED_RATE_WINDOW - elapsed)
+    _feed_rate_calls.append(time.time())
+
+
 def _fetch_bluesky_post_json(link: str) -> dict | None:
     parsed = _bluesky_handle_rkey_from_link(link)
     if not parsed:
@@ -587,6 +600,7 @@ def _gather_feed_items(feeds: Iterable[str]) -> List[dict]:
     items: List[dict] = []
     for url in feeds:
         try:
+            _feed_rate_limit()
             parsed = feedparser.parse(url)
         except Exception:
             continue
