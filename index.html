@@ -394,6 +394,12 @@
             <button type="button" id="move-folder">Move folder</button>
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <select id="delete-folder-select" style="min-width:200px;flex:1 1 200px;">
+              <option value="">Delete folder</option>
+            </select>
+            <button type="button" id="delete-folder">Delete folder</button>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
               <input id="opml-file" type="file" accept=".opml, text/xml" style="color:#cbd5e1;" />
             </label>
@@ -470,6 +476,8 @@
     const moveFolderSelect = document.getElementById("move-folder-select");
     const moveFolderParentSelect = document.getElementById("move-folder-parent");
     const moveFolderBtn = document.getElementById("move-folder");
+    const deleteFolderSelect = document.getElementById("delete-folder-select");
+    const deleteFolderBtn = document.getElementById("delete-folder");
     const pagers = Array.from(document.querySelectorAll(".pager"));
     const pageInfos = Array.from(document.querySelectorAll(".page-info"));
     const prevPageBtns = Array.from(document.querySelectorAll(".prev-page"));
@@ -577,6 +585,7 @@
       const parentCurrent = newFolderParentSelect.value;
       const moveCurrent = moveFolderSelect.value;
       const moveParentCurrent = moveFolderParentSelect.value;
+      const deleteCurrent = deleteFolderSelect.value;
       const addCurrent = feedFolderInput.value;
       const values = Array.from(new Set([defaultFolder, ...folders]));
       values.sort((a, b) => a.localeCompare(b));
@@ -604,6 +613,10 @@
       } else {
         moveFolderParentSelect.value = moveParentCurrent;
       }
+      const deletable = values.filter((f) => f !== defaultFolder);
+      const deleteOptions = deletable.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
+      deleteFolderSelect.innerHTML = `<option value="">Delete folder</option>${deleteOptions}`;
+      deleteFolderSelect.value = deletable.includes(deleteCurrent) ? deleteCurrent : "";
     };
 
     const renderFeeds = (feeds) => {
@@ -974,6 +987,34 @@
         .catch((err) => setStatus(err.message || "Failed to move folder", true))
         .finally(() => {
           moveFolderBtn.disabled = false;
+        });
+    });
+
+    deleteFolderBtn.addEventListener("click", () => {
+      const folder = (deleteFolderSelect.value || "").trim();
+      if (!folder || folder === defaultFolder) {
+        setStatus("Choose a folder to delete", true);
+        return;
+      }
+      deleteFolderBtn.disabled = true;
+      setStatus("Deleting folder...");
+      fetch("/api/folders", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder }),
+      })
+        .then((r) => r.json().then((data) => ({ status: r.status, data })))
+        .then(({ status, data }) => {
+          if (status >= 400) throw new Error(data.error || "Failed");
+          applyFeeds(data);
+          deleteFolderSelect.value = "";
+          currentPage = 1;
+          setStatus(data.message || "Folder deleted");
+          return fetchItems();
+        })
+        .catch((err) => setStatus(err.message || "Failed to delete folder", true))
+        .finally(() => {
+          deleteFolderBtn.disabled = false;
         });
     });
 

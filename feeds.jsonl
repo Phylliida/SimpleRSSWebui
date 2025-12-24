@@ -157,3 +157,5 @@
 {"action": "remove_feed", "url": "http://feeds.washingtonpost.com/rss/world"}
 {"action": "remove_feed", "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"}
 {"action": "remove_feed", "url": "https://www.huffpost.com/section/world-news/feed"}
+{"action": "add_folder", "folder": "Favs/Game Dev"}
+{"action": "add_feed", "url": "https://bsky.app/profile/freya.bsky.social/rss", "folder": "Favs/Game Dev"}
