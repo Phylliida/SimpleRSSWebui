@@ -135,3 +135,6 @@
 {"action": "move_folder", "folder": "Bees/Data Analysis/News", "parent": ""}
 {"action": "move_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC3XTzVzaHQEd30rQbuvCtTQ", "folder": "Bees"}
 {"action": "move_feed", "url": "https://bsky.app/profile/did:plc:kqbyr4gqt6p2l57htlsa4nha/rss", "folder": "Bees"}
+{"action": "add_feed", "url": "https://ourworldindata.org/atom.xml", "folder": "Bees"}
+{"action": "add_feed", "url": "https://ourworldindata.org/atom.xml", "folder": "Onion"}
+{"action": "add_feed", "url": "https://ourworldindata.org/atom.xml", "folder": "Default"}

@@ -43,7 +43,7 @@
     form {
       display: flex;
       gap: 10px;
-      margin-bottom: 16px;
+      margin: 0;
       flex-wrap: wrap;
     }
     input[type="url"],
@@ -115,6 +115,9 @@
       padding: 10px 12px 12px;
       display: grid;
       gap: 12px;
+    }
+    .collapsible .collapsible-body > * + * {
+      margin-top: 10px;
     }
     .collapsible .list {
       padding: 10px 12px 12px;
@@ -375,13 +378,6 @@
             <button type="submit">Add feed</button>
           </form>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
-              <input id="opml-file" type="file" accept=".opml, text/xml" style="color:#cbd5e1;" />
-            </label>
-            <button type="button" id="import-opml">Import OPML</button>
-            <button type="button" id="export-opml">Export OPML</button>
-          </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <input id="new-folder" type="text" name="new-folder" placeholder="New folder name" style="flex:1 1 220px;" />
             <select id="new-folder-parent" style="min-width:160px;flex:0 0 auto;">
               <option value="">Parent (root)</option>
@@ -396,6 +392,13 @@
               <option value="">New parent (root)</option>
             </select>
             <button type="button" id="move-folder">Move folder</button>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
+              <input id="opml-file" type="file" accept=".opml, text/xml" style="color:#cbd5e1;" />
+            </label>
+            <button type="button" id="import-opml">Import OPML</button>
+            <button type="button" id="export-opml">Export OPML</button>
           </div>
         </div>
       </details>
@@ -598,32 +601,37 @@
       const filter = folderFilterSelect.value || "";
       const filtered = filter
         ? feeds.filter((url) => {
-            const folder = feedFolders[url] || defaultFolder;
-            return folder === filter || folder.startsWith(`${filter}/`);
+            const folders = Array.isArray(feedFolders[url]) && feedFolders[url].length
+              ? feedFolders[url]
+              : [defaultFolder];
+            return folders.some((folder) => folder === filter || folder.startsWith(`${filter}/`));
           })
         : feeds;
       if (feedSummaryLabel) {
         feedSummaryLabel.textContent = `(${filtered.length})`;
       }
       const folderOptions = (current) => {
-        const opts = Array.from(new Set([defaultFolder, ...folders, current]));
+        const opts = Array.from(new Set([defaultFolder, ...folders, current || defaultFolder]));
         opts.sort((a, b) => a.localeCompare(b));
         return opts.map((f) => `<option value="${esc(f)}"${f === current ? " selected" : ""}>${esc(f)}</option>`).join("");
       };
       feedList.innerHTML = filtered.map((url) => {
-        const rawFolder = feedFolders[url] || defaultFolder;
-        const folder = esc(rawFolder);
+        const foldersForFeed = Array.isArray(feedFolders[url]) && feedFolders[url].length
+          ? feedFolders[url]
+          : [defaultFolder];
+        const primaryFolder = foldersForFeed[0];
+        const folderLabel = foldersForFeed.map(esc).join(", ");
         const safe = esc(url);
         const label = esc(feedLabel(url));
         return `<li>
           <div class="feed-info">
             <span>${label}</span>
             <div class="feed-url">${safe}</div>
-            <div class="folder-label">Folder: ${folder}</div>
+            <div class="folder-label">Folders: ${folderLabel}</div>
           </div>
           <div class="feed-actions">
-            <select class="folder-select" data-url="${safe}" data-current="${folder}" aria-label="Move ${safe}">
-              ${folderOptions(rawFolder)}
+            <select class="folder-select" data-url="${safe}" data-current="${esc(primaryFolder)}" aria-label="Move ${safe}">
+              ${folderOptions(primaryFolder)}
             </select>
             <button class="delete" data-url="${safe}" aria-label="Remove ${safe}">&minus;</button>
           </div>
@@ -646,8 +654,22 @@
       }
       feedListCache = feeds;
       feedFolders = {};
-      feeds.forEach((url) => { feedFolders[url] = incomingFolders[url] || defaultFolder; });
-      folders = new Set([defaultFolder, ...(Array.isArray(data.folders) ? data.folders : []), ...Object.values(feedFolders)]);
+      feeds.forEach((url) => {
+        const raw = incomingFolders[url];
+        const list = Array.isArray(raw)
+          ? raw.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean)
+          : typeof raw === "string" && raw.trim() ? [raw.trim()] : [];
+        const unique = Array.from(new Set(list));
+        unique.sort((a, b) => a.localeCompare(b));
+        feedFolders[url] = unique.length ? unique : [defaultFolder];
+      });
+      const allFolders = new Set([defaultFolder, ...(Array.isArray(data.folders) ? data.folders : [])]);
+      Object.values(feedFolders).forEach((arr) => {
+        (Array.isArray(arr) ? arr : []).forEach((name) => {
+          if (typeof name === "string" && name.trim()) allFolders.add(name);
+        });
+      });
+      folders = allFolders;
       syncFolderSelects();
       if (!appliedFolderFromHash && pendingFolderFromHash) {
         const hasFolder = Array.from(folderFilterSelect.options).some((opt) => opt.value === pendingFolderFromHash);
