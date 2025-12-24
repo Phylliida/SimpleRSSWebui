@@ -300,8 +300,8 @@ def _state_payload(events: Iterable[dict] | None = None) -> dict:
     for old, new in moves:
         if old in folder_names:
             folder_names.discard(old)
-        if new:
-            folder_names.add(new)
+            if new:
+                folder_names.add(new)
     folder_names_sorted = sorted(folder_names)
     tags = _feed_tags_from_events(events_list)
     cached_titles = _feed_titles_from_items(_load_cached_items())

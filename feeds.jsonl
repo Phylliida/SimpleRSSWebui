@@ -160,3 +160,11 @@
 {"action": "add_folder", "folder": "Favs/Game Dev"}
 {"action": "add_feed", "url": "https://bsky.app/profile/freya.bsky.social/rss", "folder": "Favs/Game Dev"}
 {"action": "mark_viewed", "item_id": "https://bsky.app/profile/freya.bsky.social/rss|at://did:plc:5nq3pybl4nnoxfp3ovjy2lh7/app.bsky.feed.post/3maozbtxxi22r"}
+{"action": "remove_folder", "folder": "Bees"}
+{"action": "remove_folder", "folder": "Bees/Data Analysis"}
+{"action": "remove_folder", "folder": "Bees/Data Analysis"}
+{"action": "remove_folder", "folder": "News"}
+{"action": "remove_folder", "folder": "Onion"}
+{"action": "remove_folder", "folder": "News"}
+{"action": "remove_folder", "folder": "Onion"}
+{"action": "remove_folder", "folder": "News"}

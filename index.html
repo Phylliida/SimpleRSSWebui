@@ -756,14 +756,17 @@
 
     const renderItems = (items) => {
       itemsList.innerHTML = (items || []).map((item) => {
-        const title = esc(item.title || "(untitled)");
+        const titleText = String(item.title || "(untitled)");
+        const title = esc(titleText);
         const safeLink = esc(item.link || "");
         const link = item.link ? `<a href="${safeLink}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
         const thumbUrl = safeUrl(item.thumbnail || "");
         const thumb = thumbUrl ? `<div class="thumb-wrap"><img class="thumb" src="${esc(thumbUrl)}" alt="" loading="lazy" /></div>` : "";
-        const feedName = feedTitles[item.feed] || item.feed_title || item.feed;
+        const feedNameRaw = feedTitles[item.feed] || item.feed_title || item.feed;
+        const feedName = typeof feedNameRaw === "string" ? feedNameRaw : "";
+        const showFeedName = feedName && feedName.trim().toLowerCase() !== titleText.trim().toLowerCase();
         const metaBits = [];
-        if (feedName) metaBits.push(esc(feedName));
+        if (showFeedName) metaBits.push(esc(feedName));
         const published = formatTime(item.published);
         if (published) metaBits.push(esc(published));
         const meta = metaBits.length ? `<div class="meta">${metaBits.join(" · ")}</div>` : "";
