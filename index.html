@@ -173,18 +173,20 @@
       border-radius: 8px;
     }
     .delete {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      background: #0f172a;
+      border: none;
+      background: transparent;
       color: #fca5a5;
       cursor: pointer;
-      font-size: 18px;
+      font-size: 20px;
       line-height: 1;
-      transition: background 120ms ease, transform 120ms ease;
+      padding: 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 120ms ease, color 120ms ease;
     }
-    .delete:hover { background: #1e293b; transform: translateY(-1px); }
+    .delete:hover { transform: translateY(-1px); color: #fecdd3; }
+    .delete:active { transform: translateY(0); }
     .feed-actions {
       display: inline-flex;
       align-items: center;
