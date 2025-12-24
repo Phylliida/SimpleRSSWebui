@@ -175,3 +175,5 @@
 {"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC3XTzVzaHQEd30rQbuvCtTQ", "folder": "Favs/YouTube/News"}
 {"action": "add_folder", "folder": "Favs/YouTube/Makers"}
 {"action": "add_folder", "folder": "Favs/YouTube/Maths"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCiNLr9wX35KksK77mrQgxiw", "folder": "Favs/YouTube/Maths"}
+{"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC7EUiC7Jl-1rzwuepuIz5vw", "folder": "Favs/YouTube/Maths"}

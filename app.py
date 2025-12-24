@@ -18,6 +18,7 @@ from pathlib import Path
 from collections import deque
 from typing import Iterable, List, Set
 from urllib.parse import parse_qs, urlparse
+import re
 
 import feedparser
 import listparser
@@ -98,6 +99,40 @@ def _is_youtube_feed(url: str) -> bool:
     if "youtube.com" not in host or "feeds/videos.xml" not in path:
         return False
     return "channel_id" in parse_qs(parsed.query or "")
+
+
+_YT_RSS_RE = re.compile(
+    r'"rssUrl":"(https://www\.youtube\.com/feeds/videos\.xml\?channel_id=[^"]+)"'
+)
+
+
+def _resolve_youtube_feed_url(url: str) -> str | None:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+    host = (parsed.hostname or "").lower()
+    path = (parsed.path or "").rstrip("/")
+    if "youtube.com" not in host or not path or _is_youtube_feed(url):
+        return None
+    if not (path.startswith("/@") or path.startswith("/channel/") or path.startswith("/user/") or path.startswith("/c/")):
+        return None
+    about_path = path if path.endswith("/about") else f"{path}/about"
+    about_url = f"{parsed.scheme or 'https'}://{parsed.netloc}{about_path}"
+    try:
+        resp = requests.get(
+            about_url,
+            timeout=10,
+            headers={"User-Agent": "SimpleRSSWebui/1.0"},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return None
+    match = _YT_RSS_RE.search(resp.text)
+    if not match:
+        return None
+    rss_url = match.group(1).replace("\\u0026", "&").replace("\\/", "/")
+    return rss_url
 
 
 def _display_feed_title(feed_url: str, title: str | None) -> str:
@@ -513,6 +548,8 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
     bluesky_author_handle = ""
     bluesky_author_display = ""
     summary_value = entry.get("summary") or entry.get("description") or ""
+    if _is_youtube_feed(feed_url):
+        summary_value = ""
     if bluesky_json:
         summary_value = _bluesky_summary_html(bluesky_json, link) or json.dumps(bluesky_json)
         post = (bluesky_json.get("thread") or {}).get("post") or {}
@@ -633,6 +670,9 @@ def api_add_feed():
     folder = _folder_value(payload.get("folder"))
     if not url:
         return jsonify({"error": "url is required"}), 400
+    resolved_url = _resolve_youtube_feed_url(url)
+    if resolved_url:
+        url = resolved_url
 
     events = _load_events(LOG_PATH)
     feeds = _feeds_from_events(events)
@@ -653,11 +693,17 @@ def api_add_feed():
     state = _state_payload()
     if added_new_feed:
         state["message"] = "added"
+        if resolved_url:
+            state["resolved_url"] = resolved_url
         return jsonify(state), 201
     if added_folder:
         state["message"] = "added to folder"
+        if resolved_url:
+            state["resolved_url"] = resolved_url
         return jsonify(state)
     state["message"] = "already in folder"
+    if resolved_url:
+        state["resolved_url"] = resolved_url
     return jsonify(state)
 
 
