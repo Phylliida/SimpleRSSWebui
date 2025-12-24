@@ -15,6 +15,7 @@ from html import escape
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable, List, Set
+from urllib.parse import parse_qs, urlparse
 
 import feedparser
 import listparser
@@ -69,6 +70,45 @@ def _save_cache(items: List[dict]) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with CACHE_ITEMS_PATH.open("w", encoding="utf-8") as handle:
         json.dump(items, handle)
+
+
+def _is_youtube_feed(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
+    if "youtube.com" not in host or "feeds/videos.xml" not in path:
+        return False
+    return "channel_id" in parse_qs(parsed.query or "")
+
+
+def _display_feed_title(feed_url: str, title: str | None) -> str:
+    clean = (title or "").strip()
+    if _is_youtube_feed(feed_url):
+        return clean if clean.lower().startswith("youtube:") else f"YouTube: {clean or 'Channel'}"
+    return clean
+
+
+def _extract_feed_title(feed_url: str, parsed: object) -> str:
+    feed_data = getattr(parsed, "feed", {}) or {}
+    raw_title = ""
+    if isinstance(feed_data, dict):
+        raw_title = str(feed_data.get("title") or "").strip()
+    else:
+        raw_title = str(getattr(feed_data, "title", "") or "").strip()
+    return _display_feed_title(feed_url, raw_title)
+
+
+def _feed_titles_from_items(items: Iterable[dict]) -> dict[str, str]:
+    titles: dict[str, str] = {}
+    for item in items:
+        url = str(item.get("feed") or "").strip()
+        title = _display_feed_title(url, item.get("feed_title"))
+        if url and title and url not in titles:
+            titles[url] = title
+    return titles
 
 
 def _feeds_from_events(events: Iterable[dict]) -> List[str]:
@@ -220,12 +260,15 @@ def _state_payload(events: Iterable[dict] | None = None) -> dict:
             folder_names.add(new)
     folder_names_sorted = sorted(folder_names)
     tags = _feed_tags_from_events(events_list)
+    cached_titles = _feed_titles_from_items(_load_cached_items())
+    feed_titles = {url: title for url, title in cached_titles.items() if url in feeds}
     return {
         "feeds": feeds,
         "feed_folders": folders,
         "folders": folder_names_sorted,
         "favorites": sorted(url for url, tagset in tags.items() if "favorite" in tagset),
         "tags": {url: sorted(tagset) for url, tagset in tags.items() if tagset},
+        "feed_titles": feed_titles,
     }
 
 
@@ -301,9 +344,10 @@ def _thumbnail_from_entry(entry: dict) -> str:
     return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
 
 
-def _item_from_entry(feed_url: str, entry: dict) -> dict:
+def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
     return {
         "feed": feed_url,
+        "feed_title": _display_feed_title(feed_url, feed_title),
         "id": _entry_id(feed_url, entry),
         "title": entry.get("title") or "(no title)",
         "link": entry.get("link"),
@@ -322,8 +366,9 @@ def _gather_feed_items(feeds: Iterable[str]) -> List[dict]:
             parsed = feedparser.parse(url)
         except Exception:
             continue
+        feed_title = _extract_feed_title(url, parsed)
         entries = parsed.entries if hasattr(parsed, "entries") else []
-        items.extend(_item_from_entry(url, entry) for entry in entries)
+        items.extend(_item_from_entry(url, entry, feed_title) for entry in entries)
     return items
 
 
@@ -355,7 +400,7 @@ def _collect_items(
     viewed_ids: Set[str] | None = None,
     offset: int = 0,
     allowed_feeds: Set[str] | None = None,
-) -> tuple[List[dict], int]:
+) -> tuple[List[dict], int, dict[str, str]]:
     viewed_ids = viewed_ids or set()
     if limit is not None and limit < 0:
         limit = 0
@@ -367,6 +412,7 @@ def _collect_items(
         items = _refresh_cache(feed_list)
     else:
         items = list(items)
+    feed_titles = _feed_titles_from_items(items)
     if allowed:
         items = [i for i in items if i.get("feed") in allowed]
     else:
@@ -385,7 +431,7 @@ def _collect_items(
         base = {k: v for k, v in item.items() if k not in {"_ts", "_viewed"}}
         base["viewed"] = item["_viewed"]
         cleaned.append(base)
-    return cleaned, total
+    return cleaned, total, feed_titles
 
 
 @app.route("/api/feeds", methods=["GET"])
@@ -626,7 +672,7 @@ def api_list_items():
     if (favorites_only or folder_filter) and not allowed_feeds:
         page_size = limit if limit and limit > 0 else 0
         return jsonify({"items": [], "total": 0, "page": page, "page_size": page_size})
-    items, total = _collect_items(
+    items, total, feed_titles = _collect_items(
         feeds,
         limit=limit,
         include_viewed=include_viewed,
@@ -636,7 +682,13 @@ def api_list_items():
     )
     page_size = limit if limit and limit > 0 else total
     return jsonify(
-        {"items": items, "total": total, "page": page, "page_size": page_size}
+        {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "feed_titles": {url: title for url, title in feed_titles.items() if url in feeds},
+        }
     )
 
 
