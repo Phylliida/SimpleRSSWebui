@@ -256,6 +256,43 @@
       margin: 6px 0;
       border-radius: 8px;
     }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.78);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      z-index: 9999;
+    }
+    .lightbox img {
+      max-width: min(1200px, 94vw);
+      max-height: 94vh;
+      border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: #0f172a;
+    }
+    .lightbox.hidden {
+      display: none;
+    }
+    .lightbox .lightbox-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #e2e8f0;
+      font-size: 20px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
     .delete {
       border: none;
       background: transparent;
@@ -574,6 +611,34 @@
         feedsBlock.classList.toggle("open", isOpen);
       }
     };
+    const lightbox = document.createElement("div");
+    lightbox.className = "lightbox hidden";
+    lightbox.innerHTML = `<button class="lightbox-close" type="button" aria-label="Close image">&times;</button><img src="" alt="" />`;
+    document.body.appendChild(lightbox);
+    const lightboxImg = lightbox.querySelector("img");
+    const closeLightbox = () => {
+      lightbox.classList.add("hidden");
+      lightboxImg.removeAttribute("src");
+      lightboxImg.alt = "";
+      document.body.style.overflow = "";
+    };
+    const openLightbox = (src, alt = "") => {
+      if (!src) return;
+      lightboxImg.src = src;
+      lightboxImg.alt = alt;
+      lightbox.classList.remove("hidden");
+      document.body.style.overflow = "hidden";
+    };
+    lightbox.addEventListener("click", (ev) => {
+      if (ev.target === lightbox || ev.target.classList.contains("lightbox-close")) {
+        closeLightbox();
+      }
+    });
+    window.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && !lightbox.classList.contains("hidden")) {
+        closeLightbox();
+      }
+    });
     const updateHash = () => {
       const params = new URLSearchParams();
       const folder = folderFilterSelect.value || "";
@@ -1155,6 +1220,15 @@
     });
 
     itemsList.addEventListener("click", (ev) => {
+      const img = ev.target.closest(".summary img, .thumb");
+      if (img) {
+        const src = img.getAttribute("src") || "";
+        if (src.startsWith("http://") || src.startsWith("https://")) {
+          ev.preventDefault();
+          openLightbox(src, img.getAttribute("alt") || "");
+        }
+        return;
+      }
       const btn = ev.target.closest("button.mark-toggle");
       if (!btn) return;
       const id = btn.dataset.id;

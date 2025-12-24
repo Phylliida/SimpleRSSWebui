@@ -173,3 +173,5 @@
 {"action": "add_feed", "url": "https://bsky.app/profile/hankgreen.bsky.social/rss", "folder": "Favs/Game Dev"}
 {"action": "add_folder", "folder": "Favs/YouTube/News"}
 {"action": "add_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC3XTzVzaHQEd30rQbuvCtTQ", "folder": "Favs/YouTube/News"}
+{"action": "add_folder", "folder": "Favs/YouTube/Makers"}
+{"action": "add_folder", "folder": "Favs/YouTube/Maths"}
