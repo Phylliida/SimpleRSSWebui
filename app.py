@@ -351,6 +351,16 @@ def _entry_id(feed_url: str, entry: dict) -> str:
     return f"{feed_url}|{entry.get('title', '')}|{entry.get('published') or entry.get('updated')}"
 
 
+def _entry_author(entry: dict) -> str:
+    author = str(entry.get("author") or "").strip()
+    if author:
+        return author
+    details = entry.get("author_detail") or {}
+    if isinstance(details, dict):
+        return str(details.get("name") or details.get("email") or "").strip()
+    return str(getattr(details, "name", "") or getattr(details, "email", "") or "").strip()
+
+
 def _thumbnail_from_entry(entry: dict) -> str:
     def safe_url(val: object) -> str:
         url = str(val or "")
@@ -390,11 +400,16 @@ def _thumbnail_from_entry(entry: dict) -> str:
 
 
 def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
+    title = entry.get("title")
+    display_feed_title = _display_feed_title(feed_url, feed_title)
+    ids = _entry_id(feed_url, entry)
+    if not title:
+        title = _entry_author(entry) or (display_feed_title or (_entry_id(feed_url, entry) or "(no title)"))
     return {
         "feed": feed_url,
-        "feed_title": _display_feed_title(feed_url, feed_title),
-        "id": _entry_id(feed_url, entry),
-        "title": entry.get("title") or "(no title)",
+        "feed_title": display_feed_title,
+        "id": ids,
+        "title": title,
         "link": entry.get("link"),
         "published": entry.get("published") or entry.get("updated") or "",
         "summary": entry.get("summary") or entry.get("description") or "",

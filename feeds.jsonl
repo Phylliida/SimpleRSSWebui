@@ -159,3 +159,4 @@
 {"action": "remove_feed", "url": "https://www.huffpost.com/section/world-news/feed"}
 {"action": "add_folder", "folder": "Favs/Game Dev"}
 {"action": "add_feed", "url": "https://bsky.app/profile/freya.bsky.social/rss", "folder": "Favs/Game Dev"}
+{"action": "mark_viewed", "item_id": "https://bsky.app/profile/freya.bsky.social/rss|at://did:plc:5nq3pybl4nnoxfp3ovjy2lh7/app.bsky.feed.post/3maozbtxxi22r"}
