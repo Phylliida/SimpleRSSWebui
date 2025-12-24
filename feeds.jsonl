@@ -138,3 +138,22 @@
 {"action": "add_feed", "url": "https://ourworldindata.org/atom.xml", "folder": "Bees"}
 {"action": "add_feed", "url": "https://ourworldindata.org/atom.xml", "folder": "Onion"}
 {"action": "add_feed", "url": "https://ourworldindata.org/atom.xml", "folder": "Default"}
+{"action": "add_feed", "url": "https://ourworldindata.org/atom.xml", "folder": "News"}
+{"action": "add_folder", "folder": "Favs"}
+{"action": "add_folder", "folder": "AI"}
+{"action": "move_folder", "folder": "AI", "parent": "Favs"}
+{"action": "add_folder", "folder": "YouTube"}
+{"action": "move_folder", "folder": "YouTube", "parent": "Favs"}
+{"action": "move_feed", "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "folder": "News"}
+{"action": "move_feed", "url": "https://www.latimes.com/world-nation/rss2.0.xml", "folder": "News"}
+{"action": "move_feed", "url": "http://rss.cnn.com/rss/edition.rss", "folder": "News"}
+{"action": "move_feed", "url": "https://news.yahoo.com/rss/mostviewed", "folder": "News"}
+{"action": "remove_feed", "url": "https://news.yahoo.com/rss/mostviewed"}
+{"action": "remove_feed", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html"}
+{"action": "remove_feed", "url": "https://rss.politico.com/playbook.xml"}
+{"action": "remove_feed", "url": "http://rss.cnn.com/rss/edition.rss"}
+{"action": "remove_feed", "url": "https://www.latimes.com/world-nation/rss2.0.xml"}
+{"action": "remove_feed", "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml"}
+{"action": "remove_feed", "url": "http://feeds.washingtonpost.com/rss/world"}
+{"action": "remove_feed", "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"}
+{"action": "remove_feed", "url": "https://www.huffpost.com/section/world-news/feed"}

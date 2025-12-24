@@ -487,7 +487,9 @@
     let feedTitles = {};
     let lastRefreshAt = null;
     let pendingFolderFromHash = (initialParams.get("folder") || "").trim();
+    let pendingAddFolderFromHash = (initialParams.get("add_folder") || "").trim();
     let appliedFolderFromHash = false;
+    let appliedAddFolderFromHash = false;
     let suppressHashChange = false;
     const defaultFolder = "Default";
     let folders = new Set([defaultFolder]);
@@ -556,7 +558,9 @@
       const params = new URLSearchParams();
       const folder = folderFilterSelect.value || "";
       const limit = parseInt(itemLimitInput.value, 10);
+      const addFolder = (feedFolderInput.value || "").trim();
       if (folder) params.set("folder", folder);
+      if (addFolder) params.set("add_folder", addFolder);
       if (Number.isFinite(limit) && limit > 0) params.set("limit", limit);
       if (currentPage > 1) params.set("page", currentPage);
       const nextHash = params.toString();
@@ -573,6 +577,7 @@
       const parentCurrent = newFolderParentSelect.value;
       const moveCurrent = moveFolderSelect.value;
       const moveParentCurrent = moveFolderParentSelect.value;
+      const addCurrent = feedFolderInput.value;
       const values = Array.from(new Set([defaultFolder, ...folders]));
       values.sort((a, b) => a.localeCompare(b));
       const optionList = values.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
@@ -582,7 +587,11 @@
       newFolderParentSelect.innerHTML = parentOptions;
       moveFolderParentSelect.innerHTML = parentOptions.replace("Parent (root)", "New parent (root)");
       feedFolderInput.innerHTML = optionList;
-      feedFolderInput.value = values.includes(feedFolderInput.value) ? feedFolderInput.value : defaultFolder;
+      const preferredAdd = (!appliedAddFolderFromHash && pendingAddFolderFromHash) ? pendingAddFolderFromHash : addCurrent;
+      feedFolderInput.value = values.includes(preferredAdd) ? preferredAdd : defaultFolder;
+      if (!appliedAddFolderFromHash && pendingAddFolderFromHash && values.includes(pendingAddFolderFromHash)) {
+        appliedAddFolderFromHash = true;
+      }
       if (!values.includes(parentCurrent)) {
         newFolderParentSelect.value = "";
       } else {
@@ -675,6 +684,11 @@
         const hasFolder = Array.from(folderFilterSelect.options).some((opt) => opt.value === pendingFolderFromHash);
         folderFilterSelect.value = hasFolder ? pendingFolderFromHash : "";
         appliedFolderFromHash = true;
+      }
+      if (!appliedAddFolderFromHash && pendingAddFolderFromHash) {
+        const hasAddFolder = Array.from(feedFolderInput.options || []).some((opt) => opt.value === pendingAddFolderFromHash);
+        feedFolderInput.value = hasAddFolder ? pendingAddFolderFromHash : feedFolderInput.value;
+        appliedAddFolderFromHash = true;
       }
       renderFeeds(feeds);
     };
@@ -1055,17 +1069,23 @@
       const folder = (params.get("folder") || "").trim();
       const page = parsePositiveInt(params.get("page"), 1);
       const limit = parsePositiveInt(params.get("limit"), null);
+      const addFolder = (params.get("add_folder") || "").trim();
       if (limit !== null) {
         itemLimitInput.value = limit;
       }
       pendingFolderFromHash = folder;
+      pendingAddFolderFromHash = addFolder;
       appliedFolderFromHash = false;
+      appliedAddFolderFromHash = false;
       currentPage = page;
       renderFeeds(feedListCache);
       fetchItems();
     };
 
     window.addEventListener("hashchange", applyHashState);
+    feedFolderInput.addEventListener("change", () => {
+      updateHash();
+    });
 
     itemsList.addEventListener("click", (ev) => {
       const btn = ev.target.closest("button.mark-toggle");
