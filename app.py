@@ -30,6 +30,7 @@ CACHE_DIR = Path(
     os.environ.get("FEED_CACHE_DIR", Path(__file__).with_name("cache"))
 )
 CACHE_ITEMS_PATH = CACHE_DIR / "items.json"
+DEFAULT_FOLDER = "Default"
 
 
 def _load_events(path: Path) -> List[dict]:
@@ -87,6 +88,39 @@ def _feeds_from_events(events: Iterable[dict]) -> List[str]:
     return feeds
 
 
+def _folder_value(folder: object) -> str:
+    val = str(folder or "").strip()
+    return val or DEFAULT_FOLDER
+
+
+def _folders_from_events(events: Iterable[dict]) -> Set[str]:
+    folders: Set[str] = set()
+    for evt in events:
+        action = evt.get("action")
+        if action == "add_folder":
+            name = _folder_value(evt.get("folder"))
+            folders.add(name)
+    return folders
+
+
+def _feed_folders_from_events(events: Iterable[dict]) -> dict[str, str]:
+    folders: dict[str, str] = {}
+    for evt in events:
+        url = str(evt.get("url", "")).strip()
+        if not url:
+            continue
+        action = evt.get("action")
+        if action == "remove_feed":
+            folders.pop(url, None)
+            continue
+        folder = _folder_value(evt.get("folder"))
+        if action == "add_feed" and "folder" in evt:
+            folders[url] = folder
+        elif action == "move_feed":
+            folders[url] = folder
+    return folders
+
+
 def _feed_tags_from_events(events: Iterable[dict]) -> dict[str, Set[str]]:
     tags: dict[str, Set[str]] = {}
     for evt in events:
@@ -115,9 +149,18 @@ def _favorite_feeds(events: Iterable[dict]) -> Set[str]:
 
 def _state_payload(events: Iterable[dict] | None = None) -> dict:
     events_list = list(events) if events is not None else _load_events(LOG_PATH)
+    feeds = _feeds_from_events(events_list)
+    folders = _feed_folders_from_events(events_list)
+    if feeds and not folders:
+        folders = {url: DEFAULT_FOLDER for url in feeds}
+    for url in feeds:
+        folders.setdefault(url, DEFAULT_FOLDER)
+    folder_names = sorted({DEFAULT_FOLDER, *folders.values(), *_folders_from_events(events_list)})
     tags = _feed_tags_from_events(events_list)
     return {
-        "feeds": _feeds_from_events(events_list),
+        "feeds": feeds,
+        "feed_folders": folders,
+        "folders": folder_names,
         "favorites": sorted(url for url, tagset in tags.items() if "favorite" in tagset),
         "tags": {url: sorted(tagset) for url, tagset in tags.items() if tagset},
     }
@@ -291,6 +334,7 @@ def api_list_feeds():
 def api_add_feed():
     payload = request.get_json(silent=True) or {}
     url = str(payload.get("url", "")).strip()
+    folder = _folder_value(payload.get("folder"))
     if not url:
         return jsonify({"error": "url is required"}), 400
 
@@ -300,7 +344,7 @@ def api_add_feed():
         state["message"] = "already present"
         return jsonify(state)
 
-    _append_event(LOG_PATH, {"action": "add_feed", "url": url})
+    _append_event(LOG_PATH, {"action": "add_feed", "url": url, "folder": folder})
     _clear_cache()
     state = _state_payload()
     state["message"] = "added"
@@ -354,7 +398,7 @@ def api_import_opml():
     feeds = current_feeds()
     new_urls = [u for u in urls if u and u not in feeds]
     for url in new_urls:
-        _append_event(LOG_PATH, {"action": "add_feed", "url": url})
+        _append_event(LOG_PATH, {"action": "add_feed", "url": url, "folder": DEFAULT_FOLDER})
     if new_urls:
         _clear_cache()
     state = _state_payload()
@@ -406,6 +450,40 @@ def api_feed_tags():
     return jsonify(state)
 
 
+@app.route("/api/folders", methods=["POST"])
+def api_add_folder():
+    payload = request.get_json(silent=True) or {}
+    folder = _folder_value(payload.get("name"))
+    if not folder:
+        return jsonify({"error": "name is required"}), 400
+    events = _load_events(LOG_PATH)
+    existing = set(_state_payload(events).get("folders", []))
+    if folder in existing:
+        state = _state_payload(events)
+        state["message"] = "already present"
+        return jsonify(state)
+    _append_event(LOG_PATH, {"action": "add_folder", "folder": folder})
+    state = _state_payload()
+    state["message"] = "folder created"
+    return jsonify(state), 201
+
+
+@app.route("/api/feeds/folder", methods=["POST"])
+def api_feed_folder():
+    payload = request.get_json(silent=True) or {}
+    url = str(payload.get("url", "")).strip()
+    folder = _folder_value(payload.get("folder"))
+    if not url:
+        return jsonify({"error": "url is required"}), 400
+    feeds = current_feeds()
+    if url not in feeds:
+        return jsonify({"error": "feed not present", "feeds": feeds}), 400
+    _append_event(LOG_PATH, {"action": "move_feed", "url": url, "folder": folder})
+    state = _state_payload()
+    state["message"] = "moved"
+    return jsonify(state)
+
+
 @app.route("/", methods=["GET"])
 def index():
     return send_file(INDEX_HTML_PATH, mimetype="text/html")
@@ -430,6 +508,10 @@ def api_list_items():
     favorites_only = (
         str(request.args.get("favorites_only", "")).lower() in {"1", "true", "yes", "on"}
     )
+    folder_filter = str(request.args.get("folder", "")).strip()
+    feed_folders = _feed_folders_from_events(events)
+    for url in feeds:
+        feed_folders.setdefault(url, DEFAULT_FOLDER)
     favorite_feeds = _favorite_feeds(events)
     try:
         page = max(1, int(request.args.get("page", "1")))
@@ -438,8 +520,12 @@ def api_list_items():
     offset = 0
     if limit and limit > 0:
         offset = (page - 1) * limit
-    allowed_feeds = favorite_feeds if favorites_only else set(feeds)
-    if favorites_only and not allowed_feeds:
+    allowed_feeds = set(feeds)
+    if favorites_only:
+        allowed_feeds &= favorite_feeds
+    if folder_filter:
+        allowed_feeds &= {url for url, folder in feed_folders.items() if folder == folder_filter}
+    if (favorites_only or folder_filter) and not allowed_feeds:
         page_size = limit if limit and limit > 0 else 0
         return jsonify({"items": [], "total": 0, "page": page, "page_size": page_size})
     items, total = _collect_items(
