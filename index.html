@@ -746,6 +746,10 @@
         });
     });
 
+    moveFolderSelect.addEventListener("change", () => {
+      moveFolderParentSelect.value = "";
+    });
+
     feedList.addEventListener("change", (ev) => {
       const select = ev.target.closest("select.folder-select");
       if (!select) return;

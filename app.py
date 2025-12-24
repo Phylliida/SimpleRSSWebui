@@ -141,13 +141,15 @@ def _folders_from_events(events: Iterable[dict]) -> tuple[Set[str], list[tuple[s
             if not old:
                 continue
             parent = _folder_name(evt.get("parent"))
-            new_path = _resolve_folder(
-                _folder_path(_folder_leaf(old), parent), moves, default_on_empty=False
-            )
-            if new_path:
+            if parent:
+                parent = _resolve_folder(parent, moves, default_on_empty=False)
+            new_path = _folder_name(_folder_path(_folder_leaf(old), parent))
+            if not new_path:
+                continue
+            if old in folders:
                 folders.discard(old)
-                folders.add(new_path)
-                moves.append((old, new_path))
+            folders.add(new_path)
+            moves.append((old, new_path))
     return folders, moves
 
 
@@ -204,14 +206,24 @@ def _state_payload(events: Iterable[dict] | None = None) -> dict:
     folders = _feed_folders_from_events(events_list, moves)
     if feeds and not folders:
         folders = {url: DEFAULT_FOLDER for url in feeds}
+    folders = {
+        url: (_resolve_folder(folder, moves, default_on_empty=False) or DEFAULT_FOLDER)
+        for url, folder in folders.items()
+    }
     for url in feeds:
         folders.setdefault(url, DEFAULT_FOLDER)
-    folder_names = sorted({DEFAULT_FOLDER, *folder_names_set, *folders.values()})
+    folder_names: set[str] = {DEFAULT_FOLDER, *folder_names_set, *folders.values()}
+    for old, new in moves:
+        if old in folder_names:
+            folder_names.discard(old)
+        if new:
+            folder_names.add(new)
+    folder_names_sorted = sorted(folder_names)
     tags = _feed_tags_from_events(events_list)
     return {
         "feeds": feeds,
         "feed_folders": folders,
-        "folders": folder_names,
+        "folders": folder_names_sorted,
         "favorites": sorted(url for url, tagset in tags.items() if "favorite" in tagset),
         "tags": {url: sorted(tagset) for url, tagset in tags.items() if tagset},
     }
@@ -539,7 +551,6 @@ def api_move_folder():
     if parent and (parent == folder or parent.startswith(f"{folder}/")):
         return jsonify({"error": "invalid parent"}), 400
     new_path = _folder_path(_folder_leaf(folder), parent)
-    new_path = _resolve_folder(new_path, moves, default_on_empty=False)
     if new_path == folder:
         state = _state_payload(events)
         state["message"] = "no change"

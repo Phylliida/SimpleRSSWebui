@@ -121,3 +121,15 @@
 {"action": "move_feed", "url": "https://www.huffpost.com/section/world-news/feed", "folder": "Bees"}
 {"action": "move_folder", "folder": "News", "parent": "Bees"}
 {"action": "move_folder", "folder": "Bees/News", "parent": "Default"}
+{"action": "move_folder", "folder": "Default/News", "parent": ""}
+{"action": "move_folder", "folder": "Default/News", "parent": ""}
+{"action": "move_folder", "folder": "Bees/Data Analysis", "parent": ""}
+{"action": "move_folder", "folder": "Default/News", "parent": "Bees"}
+{"action": "move_folder", "folder": "Onion", "parent": "Default"}
+{"action": "move_folder", "folder": "Default/News", "parent": ""}
+{"action": "move_folder", "folder": "Data Analysis", "parent": "Bees"}
+{"action": "move_folder", "folder": "Default/Onion", "parent": ""}
+{"action": "move_folder", "folder": "Onion", "parent": "Bees/Data Analysis"}
+{"action": "move_folder", "folder": "Bees/Data Analysis/Onion", "parent": ""}
+{"action": "move_folder", "folder": "News", "parent": "Bees/Data Analysis"}
+{"action": "move_folder", "folder": "Bees/Data Analysis/News", "parent": ""}
