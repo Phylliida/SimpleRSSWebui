@@ -443,6 +443,35 @@ def _thumbnail_from_entry(entry: dict) -> str:
     return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
 
 
+def _youtube_view_count(entry: dict) -> int | None:
+    def _parse(val: object) -> int | None:
+        try:
+            parsed = int(str(val).replace(",", "").strip())
+            return parsed if parsed >= 0 else None
+        except Exception:
+            return None
+
+    stats = entry.get("media_statistics")
+    if isinstance(stats, dict):
+        views = _parse(stats.get("views") or stats.get("viewCount") or stats.get("viewcount"))
+        if views is not None:
+            return views
+
+    community = entry.get("media_community")
+    if isinstance(community, dict):
+        inner_stats = community.get("media_statistics") or community.get("statistics")
+        if isinstance(inner_stats, dict):
+            views = _parse(inner_stats.get("views") or inner_stats.get("viewCount") or inner_stats.get("viewcount"))
+            if views is not None:
+                return views
+    yt_stats = entry.get("yt_statistics")
+    if isinstance(yt_stats, dict):
+        views = _parse(yt_stats.get("viewCount") or yt_stats.get("views"))
+        if views is not None:
+            return views
+    return None
+
+
 def _bluesky_handle_rkey_from_link(link: str) -> tuple[str, str] | None:
     try:
         parsed = urlparse(link)
@@ -465,7 +494,6 @@ def _bluesky_summary_html(bluesky_json: dict, link: str | None = None) -> str:
         record = post.get("record", {}) or {}
         text = str(record.get("text", "") or "")
         avatar = str(author.get("avatar", "") or "")
-        uri_link = link or post.get("uri") or ""
         reply = post.get("replyCount", 0)
         repost = post.get("repostCount", 0)
         like = post.get("likeCount", 0)
@@ -492,9 +520,6 @@ def _bluesky_summary_html(bluesky_json: dict, link: str | None = None) -> str:
         parts.append(
             f"<div><small>Replies: {reply} · Reposts: {repost} · Likes: {like} · Quotes: {quote}</small></div>"
         )
-        if uri_link:
-            safe_link = escape(uri_link)
-            parts.append(f'<div><a href="{safe_link}" target="_blank" rel="noopener">Open post</a></div>')
         return "\n".join(parts)
     except Exception:
         return ""
@@ -556,12 +581,14 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
     if not title:
         title = _entry_author(entry) or (display_feed_title or (_entry_id(feed_url, entry) or "(no title)"))
     link = entry.get("link")
+    is_youtube = _is_youtube_feed(feed_url)
+    youtube_views = _youtube_view_count(entry) if is_youtube else None
     bluesky_json = _fetch_bluesky_post_json(link) if link else None
     bluesky_author_avatar = ""
     bluesky_author_handle = ""
     bluesky_author_display = ""
     summary_value = entry.get("summary") or entry.get("description") or ""
-    if _is_youtube_feed(feed_url):
+    if is_youtube:
         summary_value = ""
     if bluesky_json:
         summary_value = _bluesky_summary_html(bluesky_json, link) or json.dumps(bluesky_json)
@@ -593,6 +620,8 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
         item["bluesky_author_handle"] = bluesky_author_handle
     if bluesky_author_display:
         item["bluesky_author_display"] = bluesky_author_display
+    if youtube_views is not None:
+        item["youtube_views"] = youtube_views
     return item
 
 

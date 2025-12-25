@@ -862,10 +862,19 @@
         const metaBits = [];
         if (blueskyHandle) metaBits.push(esc(blueskyHandle));
         else if (showFeedName) metaBits.push(esc(feedName));
+        let youtubeViewsText = "";
+        const youtubeViewsRaw = item.youtube_views;
+        if (youtubeViewsRaw !== undefined && youtubeViewsRaw !== null) {
+          const parsed = Number(youtubeViewsRaw);
+          if (Number.isFinite(parsed)) youtubeViewsText = `${parsed.toLocaleString()} views`;
+        }
         const published = formatTime(item.published);
         if (published) metaBits.push(esc(published));
         const meta = metaBits.length ? `<div class="meta">${metaBits.join(" · ")}</div>` : "";
-        const summary = item.summary ? `<div class="summary">${sanitizeSummary(item.summary)}</div>` : "";
+        const summaryParts = [];
+        if (item.summary) summaryParts.push(`<div class="summary">${sanitizeSummary(item.summary)}</div>`);
+        if (youtubeViewsText) summaryParts.push(`<div class="summary">${esc(youtubeViewsText)}</div>`);
+        const summary = summaryParts.join("");
         const viewed = Boolean(item.viewed);
         const mark = item.id
           ? `<div class="item-actions">
