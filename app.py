@@ -587,6 +587,7 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
     bluesky_author_avatar = ""
     bluesky_author_handle = ""
     bluesky_author_display = ""
+    like_count: int | None = None
     summary_value = entry.get("summary") or entry.get("description") or ""
     if is_youtube:
         summary_value = ""
@@ -598,6 +599,12 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
         bluesky_author_handle = str(author.get("handle") or "").strip()
         bluesky_author_display = str(author.get("displayName") or bluesky_author_handle or "").strip()
         author_title = str(author.get("displayName") or author.get("handle") or "").strip()
+        try:
+            like_raw = post.get("likeCount")
+            like_parsed = int(like_raw)
+            like_count = like_parsed if like_parsed >= 0 else None
+        except Exception:
+            like_count = None
         if author_title:
             title = author_title
     item = {
@@ -622,6 +629,8 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
         item["bluesky_author_display"] = bluesky_author_display
     if youtube_views is not None:
         item["youtube_views"] = youtube_views
+    if like_count is not None:
+        item["like_count"] = like_count
     return item
 
 
@@ -667,6 +676,7 @@ def _collect_items(
     viewed_ids: Set[str] | None = None,
     offset: int = 0,
     allowed_feeds: Set[str] | None = None,
+    sort_by: str = "recent",
 ) -> tuple[List[dict], int, dict[str, str]]:
     viewed_ids = viewed_ids or set()
     if limit is not None and limit < 0:
@@ -688,7 +698,20 @@ def _collect_items(
         item["_viewed"] = item.get("id") in viewed_ids
     if not include_viewed:
         items = [i for i in items if not i["_viewed"]]
-    items.sort(key=lambda i: i["_ts"], reverse=True)
+    key = (sort_by or "recent").lower()
+    def _pos_int(val: object) -> int:
+        try:
+            parsed = int(val)
+            return parsed if parsed >= 0 else -1
+        except Exception:
+            return -1
+
+    if key == "views":
+        items.sort(key=lambda i: (_pos_int(i.get("youtube_views")), i.get("_ts", 0)), reverse=True)
+    elif key == "likes":
+        items.sort(key=lambda i: (_pos_int(i.get("like_count")), i.get("_ts", 0)), reverse=True)
+    else:
+        items.sort(key=lambda i: i.get("_ts", 0), reverse=True)
     total = len(items)
     trimmed = items[offset:] if offset else items
     if limit and limit > 0:
@@ -966,6 +989,9 @@ def api_list_items():
     favorites_only = (
         str(request.args.get("favorites_only", "")).lower() in {"1", "true", "yes", "on"}
     )
+    sort_by = str(request.args.get("sort", "recent") or "").lower()
+    if sort_by not in {"recent", "views", "likes"}:
+        sort_by = "recent"
     folder_filter = _resolve_folder(request.args.get("folder", ""), moves, default_on_empty=False)
     feed_folders = _feed_folders_from_events(events, moves, removed)
     for url in feeds:
@@ -998,6 +1024,7 @@ def api_list_items():
                 "total": 0,
                 "page": page,
                 "page_size": page_size,
+                "sort": sort_by,
                 "last_refreshed": _cache_last_refreshed(),
             }
         )
@@ -1008,6 +1035,7 @@ def api_list_items():
         viewed_ids=viewed_ids,
         offset=offset,
         allowed_feeds=allowed_feeds,
+        sort_by=sort_by,
     )
     page_size = limit if limit and limit > 0 else total
     return jsonify(
@@ -1018,6 +1046,7 @@ def api_list_items():
             "page_size": page_size,
             "feed_titles": {url: title for url, title in feed_titles.items() if url in feeds},
             "last_refreshed": _cache_last_refreshed(),
+            "sort": sort_by,
         }
     )
 

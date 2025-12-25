@@ -404,6 +404,20 @@
     .items-header h2 {
       margin: 0;
     }
+    .items-header-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #sort-toggle {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(125, 211, 252, 0.3);
+      background: rgba(125, 211, 252, 0.08);
+      color: #7dd3fc;
+      font-weight: 700;
+      cursor: pointer;
+    }
     .status {
       min-height: 20px;
       color: #a5f3fc;
@@ -488,10 +502,13 @@
       </div>
       <div class="items-header">
         <h2>Items</h2>
-        <div class="pager pager-inline" style="display:none;">
-          <button class="prev-page" type="button">Previous</button>
-          <div class="page-info">Page 1</div>
-          <button class="next-page" type="button">Next</button>
+        <div class="items-header-controls">
+          <button type="button" id="sort-toggle">Sort: Most recent</button>
+          <div class="pager pager-inline" style="display:none;">
+            <button class="prev-page" type="button">Previous</button>
+            <div class="page-info">Page 1</div>
+            <button class="next-page" type="button">Next</button>
+          </div>
         </div>
       </div>
       <ul id="items" class="list"></ul>
@@ -510,6 +527,7 @@
     const feedsToggle = document.getElementById("feeds-toggle");
     const feedsPanel = document.getElementById("feeds-panel");
     const lastRefreshedLabel = document.getElementById("last-refreshed");
+    const sortToggleBtn = document.getElementById("sort-toggle");
     const urlInput = document.getElementById("feed-url");
     const feedFolderInput = document.getElementById("feed-folder");
     const opmlInput = document.getElementById("opml-file");
@@ -538,6 +556,10 @@
       return Number.isFinite(n) && n > 0 ? n : fallback;
     };
     let currentPage = parsePositiveInt(initialParams.get("page"), 1);
+    const sortOptions = ["recent", "views", "likes"];
+    const sortLabels = { recent: "Most recent", views: "Most views", likes: "Most likes" };
+    const initialSort = (initialParams.get("sort") || "recent").toLowerCase();
+    let currentSort = sortOptions.includes(initialSort) ? initialSort : "recent";
     let totalItems = 0;
     let feedListCache = [];
     let feedFolders = {};
@@ -607,6 +629,12 @@
     };
     renderLastRefreshed();
     setInterval(renderLastRefreshed, 30000);
+    const renderSortLabel = () => {
+      if (!sortToggleBtn) return;
+      const label = sortLabels[currentSort] || sortLabels.recent;
+      sortToggleBtn.textContent = `Sort: ${label}`;
+    };
+    renderSortLabel();
     const setFeedsOpen = (isOpen) => {
       if (!feedsToggle || !feedsPanel) return;
       feedsToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
@@ -649,6 +677,7 @@
       const limit = parseInt(itemLimitInput.value, 10);
       const addFolder = (feedFolderInput.value || "").trim();
       const showViewed = showViewedInput && showViewedInput.checked;
+      params.set("sort", currentSort || "recent");
       if (folder) params.set("folder", folder);
       if (addFolder) params.set("add_folder", addFolder);
       if (showViewed) params.set("include_viewed", "1");
@@ -919,6 +948,7 @@
       params.push(limit > 0 ? `limit=${limit}` : "limit=0");
       if (limit > 0) params.push(`page=${currentPage}`);
       if (showViewedInput.checked) params.push("include_viewed=1");
+      params.push(`sort=${encodeURIComponent(currentSort || "recent")}`);
       if (folderFilterSelect.value) params.push(`folder=${encodeURIComponent(folderFilterSelect.value)}`);
       const qs = params.length ? `?${params.join("&")}` : "";
       return fetch(`/api/items${qs}`)
@@ -926,6 +956,13 @@
         .then((data) => {
           const items = Array.isArray(data.items) ? data.items : [];
           const incomingTitles = data.feed_titles && typeof data.feed_titles === "object" ? data.feed_titles : {};
+          if (typeof data.sort === "string") {
+            const returnedSort = data.sort.toLowerCase();
+            if (sortOptions.includes(returnedSort) && returnedSort !== currentSort) {
+              currentSort = returnedSort;
+              renderSortLabel();
+            }
+          }
           let titlesChanged = false;
           const nextTitles = { ...feedTitles };
           Object.entries(incomingTitles).forEach(([url, title]) => {
@@ -1217,6 +1254,9 @@
       const limit = parsePositiveInt(params.get("limit"), null);
       const addFolder = (params.get("add_folder") || "").trim();
       const includeViewed = (params.get("include_viewed") || "").toLowerCase();
+      const sortParam = (params.get("sort") || "").toLowerCase();
+      currentSort = sortOptions.includes(sortParam) ? sortParam : "recent";
+      renderSortLabel();
       if (showViewedInput) {
         showViewedInput.checked = ["1", "true", "yes", "on"].includes(includeViewed);
       }
@@ -1236,6 +1276,16 @@
     feedFolderInput.addEventListener("change", () => {
       updateHash();
     });
+    if (sortToggleBtn) {
+      sortToggleBtn.addEventListener("click", () => {
+        const idx = sortOptions.indexOf(currentSort);
+        const next = sortOptions[(idx + 1) % sortOptions.length];
+        currentSort = next;
+        renderSortLabel();
+        updateHash();
+        fetchItems();
+      });
+    }
 
     itemsList.addEventListener("click", (ev) => {
       const img = ev.target.closest(".summary img");

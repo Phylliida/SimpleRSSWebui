@@ -260,3 +260,5 @@
 {"action": "add_folder", "folder": "Spammy"}
 {"action": "add_folder", "folder": "Spammy/YouTube"}
 {"action": "move_feed", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCTmAItbBAhy23B-4vLrEbRw", "folder": "Spammy/YouTube"}
+{"action": "add_folder", "folder": "Favs/Maths"}
+{"action": "add_feed", "url": "https://mathstodon.xyz/@tao.rss", "folder": "Favs/Maths"}
