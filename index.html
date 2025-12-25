@@ -339,6 +339,28 @@
     }
     .mark:hover { transform: translateY(-1px); border-color: rgba(125, 211, 252, 0.6); }
     .mark:disabled { opacity: 0.6; cursor: default; transform: none; }
+    .bookmark-btn {
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      border: 1px solid rgba(125, 211, 252, 0.3);
+      background: rgba(125, 211, 252, 0.08);
+      color: #7dd3fc;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .bookmark-btn:hover { transform: translateY(-1px); border-color: rgba(125, 211, 252, 0.6); }
+    .bookmark-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+    .bookmark-btn.bookmarked {
+      background: rgba(125, 211, 252, 0.16);
+      border-color: rgba(125, 211, 252, 0.9);
+      color: #bae6fd;
+    }
     .mark-box {
       display: inline-flex;
       align-items: center;
@@ -371,6 +393,11 @@
       display: block;
       transform: scale(4);
       transform-origin: center;
+    }
+    .bookmark-btn .mark-icon {
+      width: 18px;
+      height: 18px;
+      transform: scale(6);
     }
     .pager {
       display: flex;
@@ -554,6 +581,7 @@
     const nextPageBtns = Array.from(document.querySelectorAll(".next-page"));
     const hashParams = () => new URLSearchParams((location.hash || "").replace(/^#/, ""));
     const initialParams = hashParams();
+    const bookmarksKey = "__bookmarks__";
     const parsePositiveInt = (val, fallback) => {
       const n = parseInt(val, 10);
       return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -571,6 +599,7 @@
     let feedListCache = [];
     let feedFolders = {};
     let feedTitles = {};
+    let itemCache = {};
     let lastRefreshAt = null;
     let pendingFolderFromHash = (initialParams.get("folder") || "").trim();
     let pendingAddFolderFromHash = (initialParams.get("add_folder") || "").trim();
@@ -706,6 +735,8 @@
     };
     const viewedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M1.606 6.08a1 1 0 0 1 1.313.526L2 7l.92-.394v-.001l.003.009l.021.045l.094.194c.086.172.219.424.4.729a13.4 13.4 0 0 0 1.67 2.237a12 12 0 0 0 .59.592C7.18 11.8 9.251 13 12 13a8.7 8.7 0 0 0 3.22-.602c1.227-.483 2.254-1.21 3.096-1.998a13 13 0 0 0 2.733-3.725l.027-.058l.005-.011a1 1 0 0 1 1.838.788L22 7l.92.394l-.003.005l-.004.008l-.011.026l-.04.087a14 14 0 0 1-.741 1.348a15.4 15.4 0 0 1-1.711 2.256l.797.797a1 1 0 0 1-1.414 1.415l-.84-.84a12 12 0 0 1-1.897 1.256l.782 1.202a1 1 0 1 1-1.676 1.091l-.986-1.514c-.679.208-1.404.355-2.176.424V16.5a1 1 0 0 1-2 0v-1.544c-.775-.07-1.5-.217-2.177-.425l-.985 1.514a1 1 0 0 1-1.676-1.09l.782-1.203c-.7-.37-1.332-.8-1.897-1.257l-.84.84a1 1 0 0 1-1.414-1.414l.797-.797a15.4 15.4 0 0 1-1.87-2.519a14 14 0 0 1-.591-1.107l-.033-.072l-.01-.021l-.002-.007l-.001-.002v-.001C1.08 7.395 1.08 7.394 2 7l-.919.395a1 1 0 0 1 .525-1.314" clip-rule="evenodd"/></svg>`;
     const unviewedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4s7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20s-7.028-2.5-8.725-4.704Z"/><path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z"/></g></svg>`;
+    const bookmarkIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.03" d="M16 14.046v-2.497c0-2.145 0-3.217-.586-3.883S13.886 7 12 7s-2.828 0-3.414.666S8 9.404 8 11.55v2.497c0 1.548 0 2.322.326 2.66a.95.95 0 0 0 .562.29c.438.056.95-.453 1.975-1.473c.453-.45.68-.676.942-.735a.9.9 0 0 1 .39 0c.262.059.489.284.942.735c1.024 1.02 1.537 1.53 1.976 1.473a.95.95 0 0 0 .56-.29c.327-.338.327-1.112.327-2.66Z"/></svg>`;
+    const bookmarkedIcon = `<svg class="mark-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" stroke="currentColor" stroke-width="1.03" d="M16 14.046v-2.497c0-2.145 0-3.217-.586-3.883S13.886 7 12 7s-2.828 0-3.414.666S8 9.404 8 11.55v2.497c0 1.548 0 2.322.326 2.66a.95.95 0 0 0 .562.29c.438.056.95-.453 1.975-1.473c.453-.45.68-.676.942-.735a.9.9 0 0 1 .39 0c.262.059.489.284.942.735c1.024 1.02 1.537 1.53 1.976 1.473a.95.95 0 0 0 .56-.29c.327-.338.327-1.112.327-2.66Z"/></svg>`;
     const syncFolderSelects = () => {
       const filterCurrent = folderFilterSelect.value;
       const parentCurrent = newFolderParentSelect.value;
@@ -716,8 +747,13 @@
       const values = Array.from(new Set([defaultFolder, ...folders]));
       values.sort((a, b) => a.localeCompare(b));
       const optionList = values.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
-      folderFilterSelect.innerHTML = `<option value="">All folders</option>${optionList}`;
-      folderFilterSelect.value = values.includes(filterCurrent) ? filterCurrent : "";
+      const folderOptions = `<option value="">All folders</option>${optionList}<option value="${bookmarksKey}">Bookmarks</option>`;
+      folderFilterSelect.innerHTML = folderOptions;
+      if (filterCurrent === bookmarksKey) {
+        folderFilterSelect.value = bookmarksKey;
+      } else {
+        folderFilterSelect.value = values.includes(filterCurrent) ? filterCurrent : "";
+      }
       const parentOptions = `<option value="">Parent (root)</option>${optionList}`;
       newFolderParentSelect.innerHTML = parentOptions;
       moveFolderParentSelect.innerHTML = parentOptions.replace("Parent (root)", "New parent (root)");
@@ -747,7 +783,8 @@
 
     const renderFeeds = (feeds) => {
       const filter = folderFilterSelect.value || "";
-      const filtered = filter
+      const isBookmarksFilter = filter === bookmarksKey;
+      const filtered = filter && !isBookmarksFilter
         ? feeds.filter((url) => {
             const folders = Array.isArray(feedFolders[url]) && feedFolders[url].length
               ? feedFolders[url]
@@ -926,13 +963,16 @@
         if (youtubeViewsText) summaryParts.push(`<div class="summary">${esc(youtubeViewsText)}</div>`);
         const summary = summaryParts.join("");
         const viewed = Boolean(item.viewed);
-        const mark = item.id
-          ? `<div class="item-actions">
-              <button class="mark-toggle ${viewed ? "viewed" : ""}" data-id="${esc(item.id)}" data-viewed="${viewed ? "true" : "false"}" title="Toggle viewed">
-                ${viewed ? viewedIcon : unviewedIcon}
-              </button>
-             </div>`
+        const bookmarked = item.bookmarked === true || item.bookmarked === "true";
+        const bookmarkBtn = item.id
+          ? `<button class="bookmark-btn${bookmarked ? " bookmarked" : ""}" data-id="${esc(item.id)}" data-bookmarked="${bookmarked ? "true" : "false"}" title="Bookmark entry">${bookmarked ? bookmarkedIcon : bookmarkIcon}</button>`
           : "";
+        const markBtn = item.id
+          ? `<button class="mark-toggle ${viewed ? "viewed" : ""}" data-id="${esc(item.id)}" data-viewed="${viewed ? "true" : "false"}" title="Toggle viewed">
+                ${viewed ? viewedIcon : unviewedIcon}
+              </button>`
+          : "";
+        const actions = item.id ? `<div class="item-actions">${bookmarkBtn}${markBtn}</div>` : "";
         const liClass = viewed ? "viewed" : "";
         return `<li class="${liClass}">
           <div class="item-head">
@@ -941,7 +981,7 @@
               ${titleBlock}
               ${meta}
             </div>
-            ${mark}
+            ${actions}
           </div>
           ${summary}
         </li>`;
@@ -1022,6 +1062,10 @@
           }
           currentPage = pageFromServer;
           updateHash();
+          itemCache = {};
+          items.forEach((item) => {
+            if (item && item.id) itemCache[item.id] = item;
+          });
           renderItems(items);
           updatePager(maxPage);
           updateLastRefreshed(data.last_refreshed);
@@ -1338,6 +1382,42 @@
           ev.preventDefault();
           openLightbox(src, img.getAttribute("alt") || "");
         }
+        return;
+      }
+      const bookmarkBtn = ev.target.closest("button.bookmark-btn");
+      if (bookmarkBtn) {
+        const id = bookmarkBtn.dataset.id;
+        const entry = id ? itemCache[id] : null;
+        if (!id) return;
+        const isBookmarked = bookmarkBtn.dataset.bookmarked === "true";
+        if (!isBookmarked && !entry) return;
+        bookmarkBtn.disabled = true;
+        const method = isBookmarked ? "DELETE" : "POST";
+        const body = isBookmarked ? { id } : { entry };
+        const nextIcon = isBookmarked ? bookmarkIcon : bookmarkedIcon;
+        setStatus(isBookmarked ? "Removing bookmark..." : "Saving bookmark...");
+        fetch("/api/bookmarks", {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+          .then((r) => r.json().then((data) => ({ status: r.status, data })))
+          .then(({ status, data }) => {
+            if (status >= 400) throw new Error(data.error || "Failed");
+            setStatus(data.message || (isBookmarked ? "Unbookmarked" : "Bookmarked"));
+            const nowBookmarked = !isBookmarked;
+            bookmarkBtn.dataset.bookmarked = nowBookmarked ? "true" : "false";
+            bookmarkBtn.classList.toggle("bookmarked", nowBookmarked);
+            bookmarkBtn.innerHTML = nextIcon;
+            bookmarkBtn.title = nowBookmarked ? "Bookmarked" : "Bookmark entry";
+            if (!nowBookmarked && folderFilterSelect.value === bookmarksKey) {
+              fetchItems();
+            }
+          })
+          .catch((err) => setStatus(err.message || "Failed to bookmark", true))
+          .finally(() => {
+            bookmarkBtn.disabled = false;
+          });
         return;
       }
       const btn = ev.target.closest("button.mark-toggle");

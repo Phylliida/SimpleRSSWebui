@@ -263,3 +263,7 @@
 {"action": "add_folder", "folder": "Favs/Maths"}
 {"action": "add_feed", "url": "https://mathstodon.xyz/@tao.rss", "folder": "Favs/Maths"}
 {"action": "add_feed", "url": "https://mathstodon.xyz/@dougmerritt.rss", "folder": "Favs/Maths"}
+{"action": "mark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UC89AgkG34oooZubVt23wzFw|yt:video:0m7IX6-1Q8U"}
+{"action": "mark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UCJYJgj7rzsn0vdR7fkgjuIA|yt:video:ywaTX-nLm6Y"}
+{"action": "mark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UCiNLr9wX35KksK77mrQgxiw|yt:video:RcVA8Nj6HEo"}
+{"action": "unmark_viewed", "item_id": "https://www.youtube.com/feeds/videos.xml?channel_id=UCiNLr9wX35KksK77mrQgxiw|yt:video:RcVA8Nj6HEo"}

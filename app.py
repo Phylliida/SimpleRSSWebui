@@ -30,6 +30,10 @@ app = Flask(__name__)
 LOG_PATH = Path(
     os.environ.get("FEED_LOG_PATH", Path(__file__).with_name("feeds.jsonl"))
 )
+BOOKMARKS_PATH = Path(
+    os.environ.get("BOOKMARKS_LOG_PATH", Path(__file__).with_name("bookmarks.jsonl"))
+)
+BOOKMARKS_FILTER = "__bookmarks__"
 INDEX_HTML_PATH = Path(__file__).with_name("index.html")
 CACHE_DIR = Path(
     os.environ.get("FEED_CACHE_DIR", Path(__file__).with_name("cache"))
@@ -714,11 +718,44 @@ def _viewed_ids(events: Iterable[dict]) -> Set[str]:
     return seen
 
 
+def _fold_bookmarks(events: Iterable[dict]) -> dict[str, dict]:
+    saved: dict[str, dict] = {}
+    for evt in events:
+        action = evt.get("action")
+        if action == "add_entry":
+            entry = evt.get("entry")
+            if not isinstance(entry, dict):
+                continue
+            item_id = str(entry.get("id") or entry.get("guid") or entry.get("link") or "").strip()
+            if not item_id:
+                continue
+            data = dict(entry)
+            data["id"] = item_id
+            data["_ts"] = data.get("_ts") or _entry_timestamp(data) or time.time()
+            saved[item_id] = data
+        elif action == "remove_entry":
+            item_id = str(evt.get("item_id") or "").strip()
+            if item_id:
+                saved.pop(item_id, None)
+    return saved
+
+
+def _bookmarked_items(events: Iterable[dict] | None = None) -> List[dict]:
+    events_list = list(events) if events is not None else _load_events(BOOKMARKS_PATH)
+    return list(_fold_bookmarks(events_list).values())
+
+
+def _bookmarked_ids(events: Iterable[dict] | None = None) -> Set[str]:
+    events_list = list(events) if events is not None else _load_events(BOOKMARKS_PATH)
+    return set(_fold_bookmarks(events_list).keys())
+
+
 def _collect_items(
     feeds: Iterable[str],
     limit: int | None = 30,
     include_viewed: bool = False,
     viewed_ids: Set[str] | None = None,
+    bookmarked_ids: Set[str] | None = None,
     offset: int = 0,
     allowed_feeds: Set[str] | None = None,
     sort_by: str = "recent",
@@ -771,6 +808,8 @@ def _collect_items(
     for item in trimmed:
         base = {k: v for k, v in item.items() if k not in {"_ts", "_viewed"}}
         base["viewed"] = item["_viewed"]
+        if bookmarked_ids is not None:
+            base["bookmarked"] = base.get("id") in bookmarked_ids
         cleaned.append(base)
     return cleaned, total, feed_titles
 
@@ -1047,7 +1086,10 @@ def api_list_items():
     time_range = str(request.args.get("range", "all") or "").lower()
     if time_range not in {"all", "today", "week", "month"}:
         time_range = "all"
-    folder_filter = _resolve_folder(request.args.get("folder", ""), moves, default_on_empty=False)
+    raw_folder = request.args.get("folder", "")
+    is_bookmarks = str(raw_folder or "").strip() == BOOKMARKS_FILTER
+    folder_filter = "" if is_bookmarks else _resolve_folder(raw_folder, moves, default_on_empty=False)
+    bookmark_events = _load_events(BOOKMARKS_PATH)
     feed_folders = _feed_folders_from_events(events, moves, removed)
     for url in feeds:
         feed_folders.setdefault(url, [DEFAULT_FOLDER])
@@ -1059,6 +1101,32 @@ def api_list_items():
     offset = 0
     if limit and limit > 0:
         offset = (page - 1) * limit
+    if is_bookmarks:
+        items = _bookmarked_items(bookmark_events)
+        items.sort(key=lambda i: i.get("_ts", 0), reverse=True)
+        total = len(items)
+        trimmed = items[offset:] if offset else items
+        if limit and limit > 0:
+            trimmed = trimmed[:limit]
+        cleaned = []
+        for item in trimmed:
+            base = {k: v for k, v in item.items() if k != "_ts"}
+            base["viewed"] = bool(item.get("viewed") or item.get("_viewed"))
+            base["bookmarked"] = True
+            cleaned.append(base)
+        page_size = limit if limit and limit > 0 else total
+        return jsonify(
+            {
+                "items": cleaned,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "feed_titles": {},
+                "last_refreshed": _cache_last_refreshed(),
+                "sort": sort_by,
+                "range": time_range,
+            }
+        )
     allowed_feeds = set(feeds)
     if favorites_only:
         allowed_feeds &= favorite_feeds
@@ -1084,11 +1152,13 @@ def api_list_items():
                 "last_refreshed": _cache_last_refreshed(),
             }
         )
+    bookmark_ids = _bookmarked_ids(bookmark_events)
     items, total, feed_titles = _collect_items(
         feeds,
         limit=limit,
         include_viewed=include_viewed,
         viewed_ids=viewed_ids,
+        bookmarked_ids=bookmark_ids,
         offset=offset,
         allowed_feeds=allowed_feeds,
         sort_by=sort_by,
@@ -1107,6 +1177,26 @@ def api_list_items():
             "range": time_range,
         }
     )
+
+
+@app.route("/api/bookmarks", methods=["POST"])
+def api_add_bookmark():
+    payload = request.get_json(silent=True) or {}
+    entry = payload.get("entry")
+    if not isinstance(entry, dict):
+        return jsonify({"error": "entry is required"}), 400
+    _append_event(BOOKMARKS_PATH, {"action": "add_entry", "entry": entry})
+    return jsonify({"message": "bookmarked"})
+
+
+@app.route("/api/bookmarks", methods=["DELETE"])
+def api_remove_bookmark():
+    payload = request.get_json(silent=True) or {}
+    item_id = str(payload.get("id", "")).strip()
+    if not item_id:
+        return jsonify({"error": "id is required"}), 400
+    _append_event(BOOKMARKS_PATH, {"action": "remove_entry", "item_id": item_id})
+    return jsonify({"id": item_id, "message": "unbookmarked"})
 
 
 @app.route("/api/items/viewed", methods=["POST"])
