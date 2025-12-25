@@ -872,19 +872,26 @@
         const title = esc(titleText);
         const safeLink = esc(item.link || "");
         const link = item.link ? `<a href="${safeLink}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
+        const feedNameRaw = feedTitles[item.feed] || item.feed_title || item.feed;
+        const feedName = typeof feedNameRaw === "string" ? feedNameRaw : "";
+        const isYoutube = typeof item.feed === "string" && item.feed.includes("youtube.com/feeds/videos.xml");
         const blueskyAvatarUrl = safeUrl(item.bluesky_author_avatar || "");
-        const blueskyAvatarAlt = esc(item.bluesky_author_display || item.bluesky_author_handle || titleText || "Author");
-        const avatar = blueskyAvatarUrl
-          ? `<img class="item-avatar" src="${esc(blueskyAvatarUrl)}" alt="${blueskyAvatarAlt}" loading="lazy" />`
+        const feedAvatarUrl = !isYoutube ? safeUrl(item.feed_image || "") : "";
+        const avatarUrl = blueskyAvatarUrl || feedAvatarUrl;
+        const avatarAlt = esc(
+          blueskyAvatarUrl
+            ? (item.bluesky_author_display || item.bluesky_author_handle || titleText || "Author")
+            : (feedName || titleText || "Feed")
+        );
+        const avatar = avatarUrl
+          ? `<img class="item-avatar" src="${esc(avatarUrl)}" alt="${avatarAlt}" loading="lazy" />`
           : "";
-        const titleBlock = blueskyAvatarUrl
+        const titleBlock = avatarUrl
           ? `<div class="item-title with-avatar">${avatar}${link}</div>`
           : `<div class="item-title">${link}</div>`;
         const thumbUrl = safeUrl(item.thumbnail || "");
         const thumbLinkOpen = item.link ? ` href="${safeLink}" target="_blank" rel="noopener noreferrer"` : "";
         const thumb = thumbUrl ? `<div class="thumb-wrap"><a${thumbLinkOpen}><img class="thumb" src="${esc(thumbUrl)}" alt="" loading="lazy" /></a></div>` : "";
-        const feedNameRaw = feedTitles[item.feed] || item.feed_title || item.feed;
-        const feedName = typeof feedNameRaw === "string" ? feedNameRaw : "";
         const showFeedName = feedName && feedName.trim().toLowerCase() !== titleText.trim().toLowerCase();
         const blueskyHandleRaw = typeof item.bluesky_author_handle === "string" ? item.bluesky_author_handle.trim() : "";
         const blueskyHandle = blueskyHandleRaw ? (blueskyHandleRaw.startsWith("@") ? blueskyHandleRaw : `@${blueskyHandleRaw}`) : "";

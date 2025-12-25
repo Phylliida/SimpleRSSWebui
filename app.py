@@ -155,6 +155,48 @@ def _extract_feed_title(feed_url: str, parsed: object) -> str:
     return _display_feed_title(feed_url, raw_title)
 
 
+def _extract_feed_image(feed_url: str, parsed: object) -> str:
+    if _is_youtube_feed(feed_url):
+        return ""
+    feed_data = getattr(parsed, "feed", {}) or {}
+
+    def safe_url(val: object) -> str:
+        url = str(val or "").strip()
+        return url if url.startswith(("http://", "https://")) else ""
+
+    def image_from(obj: object) -> str:
+        if not obj:
+            return ""
+        if isinstance(obj, dict):
+            for key in ("href", "url", "link"):
+                url = safe_url(obj.get(key))
+                if url:
+                    return url
+        else:
+            for key in ("href", "url", "link"):
+                url = safe_url(getattr(obj, key, "") or "")
+                if url:
+                    return url
+        return ""
+
+    image = None
+    if isinstance(feed_data, dict):
+        image = feed_data.get("image")
+    else:
+        image = getattr(feed_data, "image", None)
+    url = image_from(image)
+    if url:
+        return url
+    for key in ("webfeeds_icon", "icon", "logo"):
+        if isinstance(feed_data, dict):
+            candidate = safe_url(feed_data.get(key))
+        else:
+            candidate = safe_url(getattr(feed_data, key, ""))
+        if candidate:
+            return candidate
+    return ""
+
+
 def _feed_titles_from_items(items: Iterable[dict]) -> dict[str, str]:
     titles: dict[str, str] = {}
     for item in items:
@@ -574,7 +616,7 @@ def _fetch_bluesky_post_json(link: str) -> dict | None:
         return None
 
 
-def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
+def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_image: str = "") -> dict:
     title = entry.get("title")
     display_feed_title = _display_feed_title(feed_url, feed_title)
     ids = _entry_id(feed_url, entry)
@@ -619,6 +661,8 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "") -> dict:
         "_ts": _entry_timestamp(entry),
         "_viewed": False,
     }
+    if feed_image and not is_youtube:
+        item["feed_image"] = feed_image
     if bluesky_json is not None:
         item["bluesky_json"] = bluesky_json
     if bluesky_author_avatar:
@@ -643,8 +687,9 @@ def _gather_feed_items(feeds: Iterable[str]) -> List[dict]:
         except Exception:
             continue
         feed_title = _extract_feed_title(url, parsed)
+        feed_image = _extract_feed_image(url, parsed)
         entries = parsed.entries if hasattr(parsed, "entries") else []
-        items.extend(_item_from_entry(url, entry, feed_title) for entry in entries)
+        items.extend(_item_from_entry(url, entry, feed_title, feed_image) for entry in entries)
     return items
 
 
