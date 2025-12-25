@@ -722,6 +722,7 @@ def _collect_items(
     offset: int = 0,
     allowed_feeds: Set[str] | None = None,
     sort_by: str = "recent",
+    time_range: str = "all",
 ) -> tuple[List[dict], int, dict[str, str]]:
     viewed_ids = viewed_ids or set()
     if limit is not None and limit < 0:
@@ -743,6 +744,11 @@ def _collect_items(
         item["_viewed"] = item.get("id") in viewed_ids
     if not include_viewed:
         items = [i for i in items if not i["_viewed"]]
+    range_key = (time_range or "all").lower()
+    seconds = {"today": 86400, "week": 604800, "month": 2592000}.get(range_key)
+    if seconds:
+        cutoff = time.time() - seconds
+        items = [i for i in items if i.get("_ts", 0) >= cutoff]
     key = (sort_by or "recent").lower()
     def _pos_int(val: object) -> int:
         try:
@@ -866,8 +872,9 @@ def api_import_opml():
     new_urls = [u for u in urls if u and u not in feeds]
     for url in new_urls:
         _append_event(LOG_PATH, {"action": "add_feed", "url": url, "folder": DEFAULT_FOLDER})
-    if new_urls:
-        _clear_cache()
+    # never refresh the cache unless we manually ask, because that's expensive
+    #if new_urls:
+    #    _clear_cache()
     state = _state_payload()
     state.update(
         {
@@ -1037,6 +1044,9 @@ def api_list_items():
     sort_by = str(request.args.get("sort", "recent") or "").lower()
     if sort_by not in {"recent", "views", "likes"}:
         sort_by = "recent"
+    time_range = str(request.args.get("range", "all") or "").lower()
+    if time_range not in {"all", "today", "week", "month"}:
+        time_range = "all"
     folder_filter = _resolve_folder(request.args.get("folder", ""), moves, default_on_empty=False)
     feed_folders = _feed_folders_from_events(events, moves, removed)
     for url in feeds:
@@ -1070,6 +1080,7 @@ def api_list_items():
                 "page": page,
                 "page_size": page_size,
                 "sort": sort_by,
+                "range": time_range,
                 "last_refreshed": _cache_last_refreshed(),
             }
         )
@@ -1081,6 +1092,7 @@ def api_list_items():
         offset=offset,
         allowed_feeds=allowed_feeds,
         sort_by=sort_by,
+        time_range=time_range,
     )
     page_size = limit if limit and limit > 0 else total
     return jsonify(
@@ -1092,6 +1104,7 @@ def api_list_items():
             "feed_titles": {url: title for url, title in feed_titles.items() if url in feeds},
             "last_refreshed": _cache_last_refreshed(),
             "sort": sort_by,
+            "range": time_range,
         }
     )
 

@@ -409,7 +409,8 @@
       align-items: center;
       gap: 10px;
     }
-    #sort-toggle {
+    #sort-toggle,
+    #range-toggle {
       padding: 8px 12px;
       border-radius: 8px;
       border: 1px solid rgba(125, 211, 252, 0.3);
@@ -503,6 +504,7 @@
       <div class="items-header">
         <h2>Items</h2>
         <div class="items-header-controls">
+          <button type="button" id="range-toggle">Range: All time</button>
           <button type="button" id="sort-toggle">Sort: Most recent</button>
           <div class="pager pager-inline" style="display:none;">
             <button class="prev-page" type="button">Previous</button>
@@ -527,6 +529,7 @@
     const feedsToggle = document.getElementById("feeds-toggle");
     const feedsPanel = document.getElementById("feeds-panel");
     const lastRefreshedLabel = document.getElementById("last-refreshed");
+    const rangeToggleBtn = document.getElementById("range-toggle");
     const sortToggleBtn = document.getElementById("sort-toggle");
     const urlInput = document.getElementById("feed-url");
     const feedFolderInput = document.getElementById("feed-folder");
@@ -556,9 +559,13 @@
       return Number.isFinite(n) && n > 0 ? n : fallback;
     };
     let currentPage = parsePositiveInt(initialParams.get("page"), 1);
+    const rangeOptions = ["all", "today", "week", "month"];
+    const rangeLabels = { all: "All time", today: "Today", week: "Last week", month: "Last month" };
     const sortOptions = ["recent", "views", "likes"];
     const sortLabels = { recent: "Most recent", views: "Most views", likes: "Most likes" };
+    const initialRange = (initialParams.get("range") || "all").toLowerCase();
     const initialSort = (initialParams.get("sort") || "recent").toLowerCase();
+    let currentRange = rangeOptions.includes(initialRange) ? initialRange : "all";
     let currentSort = sortOptions.includes(initialSort) ? initialSort : "recent";
     let totalItems = 0;
     let feedListCache = [];
@@ -629,6 +636,12 @@
     };
     renderLastRefreshed();
     setInterval(renderLastRefreshed, 30000);
+    const renderRangeLabel = () => {
+      if (!rangeToggleBtn) return;
+      const label = rangeLabels[currentRange] || rangeLabels.all;
+      rangeToggleBtn.textContent = `Range: ${label}`;
+    };
+    renderRangeLabel();
     const renderSortLabel = () => {
       if (!sortToggleBtn) return;
       const label = sortLabels[currentSort] || sortLabels.recent;
@@ -678,6 +691,7 @@
       const addFolder = (feedFolderInput.value || "").trim();
       const showViewed = showViewedInput && showViewedInput.checked;
       params.set("sort", currentSort || "recent");
+      params.set("range", currentRange || "all");
       if (folder) params.set("folder", folder);
       if (addFolder) params.set("add_folder", addFolder);
       if (showViewed) params.set("include_viewed", "1");
@@ -956,6 +970,7 @@
       if (limit > 0) params.push(`page=${currentPage}`);
       if (showViewedInput.checked) params.push("include_viewed=1");
       params.push(`sort=${encodeURIComponent(currentSort || "recent")}`);
+      params.push(`range=${encodeURIComponent(currentRange || "all")}`);
       if (folderFilterSelect.value) params.push(`folder=${encodeURIComponent(folderFilterSelect.value)}`);
       const qs = params.length ? `?${params.join("&")}` : "";
       return fetch(`/api/items${qs}`)
@@ -968,6 +983,13 @@
             if (sortOptions.includes(returnedSort) && returnedSort !== currentSort) {
               currentSort = returnedSort;
               renderSortLabel();
+            }
+          }
+          if (typeof data.range === "string") {
+            const returnedRange = data.range.toLowerCase();
+            if (rangeOptions.includes(returnedRange) && returnedRange !== currentRange) {
+              currentRange = returnedRange;
+              renderRangeLabel();
             }
           }
           let titlesChanged = false;
@@ -1261,8 +1283,11 @@
       const limit = parsePositiveInt(params.get("limit"), null);
       const addFolder = (params.get("add_folder") || "").trim();
       const includeViewed = (params.get("include_viewed") || "").toLowerCase();
+      const rangeParam = (params.get("range") || "").toLowerCase();
       const sortParam = (params.get("sort") || "").toLowerCase();
+      currentRange = rangeOptions.includes(rangeParam) ? rangeParam : "all";
       currentSort = sortOptions.includes(sortParam) ? sortParam : "recent";
+      renderRangeLabel();
       renderSortLabel();
       if (showViewedInput) {
         showViewedInput.checked = ["1", "true", "yes", "on"].includes(includeViewed);
@@ -1283,6 +1308,17 @@
     feedFolderInput.addEventListener("change", () => {
       updateHash();
     });
+    if (rangeToggleBtn) {
+      rangeToggleBtn.addEventListener("click", () => {
+        const idx = rangeOptions.indexOf(currentRange);
+        const next = rangeOptions[(idx + 1) % rangeOptions.length];
+        currentRange = next;
+        renderRangeLabel();
+        currentPage = 1;
+        updateHash();
+        fetchItems();
+      });
+    }
     if (sortToggleBtn) {
       sortToggleBtn.addEventListener("click", () => {
         const idx = sortOptions.indexOf(currentSort);
