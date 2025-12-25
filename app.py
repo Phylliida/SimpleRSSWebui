@@ -760,7 +760,11 @@ def _collect_items(
     allowed_feeds: Set[str] | None = None,
     sort_by: str = "recent",
     time_range: str = "all",
+    view_filter: str = "unviewed",
 ) -> tuple[List[dict], int, dict[str, str]]:
+    view_mode = (view_filter or "").lower()
+    if view_mode not in {"all", "viewed", "unviewed"}:
+        view_mode = "all" if include_viewed else "unviewed"
     viewed_ids = viewed_ids or set()
     if limit is not None and limit < 0:
         limit = 0
@@ -779,8 +783,10 @@ def _collect_items(
         items = []
     for item in items:
         item["_viewed"] = item.get("id") in viewed_ids
-    if not include_viewed:
+    if view_mode == "unviewed":
         items = [i for i in items if not i["_viewed"]]
+    elif view_mode == "viewed":
+        items = [i for i in items if i["_viewed"]]
     range_key = (time_range or "all").lower()
     seconds = {"today": 86400, "week": 604800, "month": 2592000}.get(range_key)
     if seconds:
@@ -1077,6 +1083,10 @@ def api_list_items():
     include_viewed = (
         str(request.args.get("include_viewed", "")).lower() in {"1", "true", "yes", "on"}
     )
+    view_filter = str(request.args.get("view", "")).lower()
+    if view_filter not in {"all", "viewed", "unviewed"}:
+        view_filter = "all" if include_viewed else "unviewed"
+    include_viewed = include_viewed or view_filter in {"all", "viewed"}
     favorites_only = (
         str(request.args.get("favorites_only", "")).lower() in {"1", "true", "yes", "on"}
     )
@@ -1125,6 +1135,7 @@ def api_list_items():
                 "last_refreshed": _cache_last_refreshed(),
                 "sort": sort_by,
                 "range": time_range,
+                "view": view_filter,
             }
         )
     allowed_feeds = set(feeds)
@@ -1150,6 +1161,7 @@ def api_list_items():
                 "sort": sort_by,
                 "range": time_range,
                 "last_refreshed": _cache_last_refreshed(),
+                "view": view_filter,
             }
         )
     bookmark_ids = _bookmarked_ids(bookmark_events)
@@ -1163,6 +1175,7 @@ def api_list_items():
         allowed_feeds=allowed_feeds,
         sort_by=sort_by,
         time_range=time_range,
+        view_filter=view_filter,
     )
     page_size = limit if limit and limit > 0 else total
     return jsonify(
@@ -1175,6 +1188,7 @@ def api_list_items():
             "last_refreshed": _cache_last_refreshed(),
             "sort": sort_by,
             "range": time_range,
+            "view": view_filter,
         }
     )
 

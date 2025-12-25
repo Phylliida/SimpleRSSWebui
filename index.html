@@ -436,6 +436,7 @@
       align-items: center;
       gap: 10px;
     }
+    #view-toggle,
     #sort-toggle,
     #range-toggle {
       padding: 8px 12px;
@@ -509,10 +510,6 @@
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;margin:12px 0;">
-        <label for="show-viewed" style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
-          <input id="show-viewed" type="checkbox" />
-          Show viewed items
-        </label>
         <label for="folder-filter" style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;">
           Folder:
           <select id="folder-filter" style="min-width:170px;flex:0 0 auto;">
@@ -531,6 +528,7 @@
       <div class="items-header">
         <h2>Items</h2>
         <div class="items-header-controls">
+          <button type="button" id="view-toggle">View: Unviewed</button>
           <button type="button" id="range-toggle">Range: All time</button>
           <button type="button" id="sort-toggle">Sort: Most recent</button>
           <div class="pager pager-inline" style="display:none;">
@@ -565,7 +563,7 @@
     const exportOpmlBtn = document.getElementById("export-opml");
     const refreshBtn = document.getElementById("refresh-feeds");
     const itemLimitInput = document.getElementById("item-limit");
-    const showViewedInput = document.getElementById("show-viewed");
+    const viewToggleBtn = document.getElementById("view-toggle");
     const folderFilterSelect = document.getElementById("folder-filter");
     const newFolderInput = document.getElementById("new-folder");
     const newFolderParentSelect = document.getElementById("new-folder-parent");
@@ -591,10 +589,17 @@
     const rangeLabels = { all: "All time", today: "Today", week: "Last week", month: "Last month" };
     const sortOptions = ["recent", "views", "likes"];
     const sortLabels = { recent: "Most recent", views: "Most views", likes: "Most likes" };
+    const viewOptions = ["all", "viewed", "unviewed"];
+    const viewLabels = { all: "All items", unviewed: "Unviewed only", viewed: "Viewed only" };
     const initialRange = (initialParams.get("range") || "all").toLowerCase();
     const initialSort = (initialParams.get("sort") || "recent").toLowerCase();
+    const initialViewParam = (initialParams.get("view") || "").toLowerCase();
+    const initialIncludeViewed = (initialParams.get("include_viewed") || "").toLowerCase();
     let currentRange = rangeOptions.includes(initialRange) ? initialRange : "all";
     let currentSort = sortOptions.includes(initialSort) ? initialSort : "recent";
+    let currentView = viewOptions.includes(initialViewParam)
+      ? initialViewParam
+      : (["1", "true", "yes", "on"].includes(initialIncludeViewed) ? "all" : "unviewed");
     let totalItems = 0;
     let feedListCache = [];
     let feedFolders = {};
@@ -612,10 +617,6 @@
     const initialLimit = parsePositiveInt(initialParams.get("limit"), null);
     if (initialLimit !== null && itemLimitInput) {
       itemLimitInput.value = initialLimit;
-    }
-    const initialIncludeViewed = (initialParams.get("include_viewed") || "").toLowerCase();
-    if (showViewedInput) {
-      showViewedInput.checked = ["1", "true", "yes", "on"].includes(initialIncludeViewed);
     }
     if (feedsToggle) {
       feedsToggle.addEventListener("click", (ev) => {
@@ -665,6 +666,12 @@
     };
     renderLastRefreshed();
     setInterval(renderLastRefreshed, 30000);
+    const renderViewLabel = () => {
+      if (!viewToggleBtn) return;
+      const label = viewLabels[currentView] || viewLabels.unviewed;
+      viewToggleBtn.textContent = `View: ${label}`;
+    };
+    renderViewLabel();
     const renderRangeLabel = () => {
       if (!rangeToggleBtn) return;
       const label = rangeLabels[currentRange] || rangeLabels.all;
@@ -718,12 +725,13 @@
       const folder = folderFilterSelect.value || "";
       const limit = parseInt(itemLimitInput.value, 10);
       const addFolder = (feedFolderInput.value || "").trim();
-      const showViewed = showViewedInput && showViewedInput.checked;
+      const view = currentView || "unviewed";
       params.set("sort", currentSort || "recent");
       params.set("range", currentRange || "all");
+      params.set("view", view);
       if (folder) params.set("folder", folder);
       if (addFolder) params.set("add_folder", addFolder);
-      if (showViewed) params.set("include_viewed", "1");
+      if (view === "all" || view === "viewed") params.set("include_viewed", "1");
       if (Number.isFinite(limit) && limit > 0) params.set("limit", limit);
       if (currentPage > 1) params.set("page", currentPage);
       const nextHash = params.toString();
@@ -1008,7 +1016,9 @@
       const params = [];
       params.push(limit > 0 ? `limit=${limit}` : "limit=0");
       if (limit > 0) params.push(`page=${currentPage}`);
-      if (showViewedInput.checked) params.push("include_viewed=1");
+      const viewParam = currentView || "unviewed";
+      params.push(`view=${encodeURIComponent(viewParam)}`);
+      if (viewParam === "all" || viewParam === "viewed") params.push("include_viewed=1");
       params.push(`sort=${encodeURIComponent(currentSort || "recent")}`);
       params.push(`range=${encodeURIComponent(currentRange || "all")}`);
       if (folderFilterSelect.value) params.push(`folder=${encodeURIComponent(folderFilterSelect.value)}`);
@@ -1018,6 +1028,13 @@
         .then((data) => {
           const items = Array.isArray(data.items) ? data.items : [];
           const incomingTitles = data.feed_titles && typeof data.feed_titles === "object" ? data.feed_titles : {};
+          if (typeof data.view === "string") {
+            const returnedView = data.view.toLowerCase();
+            if (viewOptions.includes(returnedView) && returnedView !== currentView) {
+              currentView = returnedView;
+              renderViewLabel();
+            }
+          }
           if (typeof data.sort === "string") {
             const returnedSort = data.sort.toLowerCase();
             if (sortOptions.includes(returnedSort) && returnedSort !== currentSort) {
@@ -1292,9 +1309,6 @@
       updateHash();
       fetchItems();
     });
-    showViewedInput.addEventListener("change", () => {
-      fetchItems();
-    });
     folderFilterSelect.addEventListener("change", () => {
       currentPage = 1;
       renderFeeds(feedListCache);
@@ -1327,15 +1341,18 @@
       const limit = parsePositiveInt(params.get("limit"), null);
       const addFolder = (params.get("add_folder") || "").trim();
       const includeViewed = (params.get("include_viewed") || "").toLowerCase();
+      const viewParam = (params.get("view") || "").toLowerCase();
       const rangeParam = (params.get("range") || "").toLowerCase();
       const sortParam = (params.get("sort") || "").toLowerCase();
       currentRange = rangeOptions.includes(rangeParam) ? rangeParam : "all";
       currentSort = sortOptions.includes(sortParam) ? sortParam : "recent";
+      const nextView = viewOptions.includes(viewParam)
+        ? viewParam
+        : (["1", "true", "yes", "on"].includes(includeViewed) ? "all" : "unviewed");
+      currentView = nextView;
       renderRangeLabel();
       renderSortLabel();
-      if (showViewedInput) {
-        showViewedInput.checked = ["1", "true", "yes", "on"].includes(includeViewed);
-      }
+      renderViewLabel();
       if (limit !== null) {
         itemLimitInput.value = limit;
       }
@@ -1352,6 +1369,17 @@
     feedFolderInput.addEventListener("change", () => {
       updateHash();
     });
+    if (viewToggleBtn) {
+      viewToggleBtn.addEventListener("click", () => {
+        const idx = viewOptions.indexOf(currentView);
+        const next = viewOptions[(idx + 1) % viewOptions.length];
+        currentView = next;
+        renderViewLabel();
+        currentPage = 1;
+        updateHash();
+        fetchItems();
+      });
+    }
     if (rangeToggleBtn) {
       rangeToggleBtn.addEventListener("click", () => {
         const idx = rangeOptions.indexOf(currentRange);
