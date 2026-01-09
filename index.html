@@ -258,6 +258,11 @@
       line-height: 1.5;
       white-space: pre-line;
     }
+    .summary p {
+      margin: 6px 0;
+    }
+    .summary p:first-child { margin-top: 0; }
+    .summary p:last-child { margin-bottom: 0; }
     .thumb-wrap {
       flex: 0 0 auto;
     }
@@ -279,6 +284,25 @@
       display: block;
       margin: 6px 0;
       border-radius: 8px;
+    }
+    .summary blockquote {
+      border-left: 3px solid rgba(125, 211, 252, 0.6);
+      margin: 10px 0;
+      padding-left: 12px;
+      color: #cbd5e1;
+    }
+    .summary hr {
+      border: none;
+      border-top: 1px solid rgba(148, 163, 184, 0.35);
+      margin: 8px 0;
+    }
+    .summary video {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 6px 0;
+      border-radius: 8px;
+      background: #0f172a;
     }
     .lightbox {
       position: fixed;
@@ -910,20 +934,27 @@
     };
 
     const sanitizeSummary = (html = "") => {
-      const allowed = new Set(["a", "p", "br", "strong", "em", "b", "i", "u", "ul", "ol", "li", "pre", "code", "span", "div", "img"]);
-      const attrAllow = { a: ["href", "title"], img: ["src", "alt", "title"] };
+      const allowed = new Set(["a", "p", "br", "strong", "em", "b", "i", "u", "ul", "ol", "li", "pre", "code", "span", "div", "img", "video", "source", "blockquote", "hr"]);
+      const drop = new Set(["footer", "cite"]);
+      const attrAllow = {
+        a: ["href", "title"],
+        img: ["src", "alt", "title"],
+        video: ["src", "poster", "controls", "autoplay", "loop", "muted", "playsinline"],
+        source: ["src", "type"],
+      };
       const safeUrl = (url = "") => (url.startsWith("http://") || url.startsWith("https://")) ? url : "";
       const doc = new DOMParser().parseFromString(html, "text/html");
       const clean = (node) => {
         if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || "");
         if (node.nodeType !== Node.ELEMENT_NODE) return null;
         const tag = node.tagName.toLowerCase();
+        if (drop.has(tag)) return null;
         if (!allowed.has(tag)) return document.createTextNode(node.textContent || "");
         const el = document.createElement(tag);
         (attrAllow[tag] || []).forEach((attr) => {
           const val = node.getAttribute(attr);
           if (!val) return;
-          if (attr === "href" || attr === "src") {
+          if (attr === "href" || attr === "src" || attr === "poster") {
             const safe = safeUrl(val);
             if (!safe) return;
             el.setAttribute(attr, safe);
@@ -934,6 +965,10 @@
         if (tag === "a" && el.getAttribute("href")) {
           el.setAttribute("rel", "noopener noreferrer");
           el.setAttribute("target", "_blank");
+        }
+        if (tag === "video" && !el.hasAttribute("controls")) {
+          el.setAttribute("controls", "");
+          el.setAttribute("preload", "metadata");
         }
         node.childNodes.forEach((child) => {
           const cleaned = clean(child);
