@@ -255,14 +255,21 @@
     .summary {
       color: #e2e8f0;
       font-size: 15px;
-      line-height: 1.5;
+      line-height: 1;
       white-space: pre-line;
     }
     .summary p {
-      margin: 6px 0;
+      margin: 0;
     }
-    .summary p:first-child { margin-top: 0; }
-    .summary p:last-child { margin-bottom: 0; }
+    .summary blockquote p {
+      margin: 0;
+    }
+    br {
+      display: block;
+      margin: 0;
+      line-height: 0;
+      height: 0;
+    }
     .thumb-wrap {
       flex: 0 0 auto;
     }
@@ -981,6 +988,49 @@
         const cleaned = clean(child);
         if (cleaned) container.appendChild(cleaned);
       });
+      const isEmptyParagraph = (el) => {
+        if (!el || el.tagName.toLowerCase() !== "p") return false;
+        const text = (el.textContent || "").replace(/\u00a0/g, " ").trim();
+        const hasMedia = el.querySelector("img, video, source");
+        const hasNonBreakChild = Array.from(el.children).some((child) => child.tagName.toLowerCase() !== "br");
+        return !hasMedia && !hasNonBreakChild && text === "";
+      };
+      const trimTrailingEmptyParagraphs = (root) => {
+        let cursor = root.lastElementChild;
+        while (cursor && isEmptyParagraph(cursor)) {
+          const prev = cursor.previousElementSibling;
+          root.removeChild(cursor);
+          cursor = prev;
+        }
+      };
+      trimTrailingEmptyParagraphs(container);
+      const stripParagraphs = (root) => {
+        const paragraphs = Array.from(root.querySelectorAll("p"));
+        paragraphs.forEach((p) => {
+          const frag = document.createDocumentFragment();
+          while (p.firstChild) frag.appendChild(p.firstChild);
+          p.replaceWith(frag);
+        });
+      };
+      stripParagraphs(container);
+      const trimWhitespaceEdges = (node) => {
+        if (!node) return;
+        const isElement = node.nodeType === Node.ELEMENT_NODE;
+        if (isElement) {
+          const tag = node.tagName.toLowerCase();
+          if (tag === "pre" || tag === "code") return;
+        }
+        while (node.firstChild && node.firstChild.nodeType === Node.TEXT_NODE && node.firstChild.textContent.trim() === "") {
+          node.removeChild(node.firstChild);
+        }
+        while (node.lastChild && node.lastChild.nodeType === Node.TEXT_NODE && node.lastChild.textContent.trim() === "") {
+          node.removeChild(node.lastChild);
+        }
+        Array.from(node.childNodes).forEach((child) => {
+          if (child.nodeType === Node.ELEMENT_NODE) trimWhitespaceEdges(child);
+        });
+      };
+      trimWhitespaceEdges(container);
       return container.innerHTML;
     };
 
