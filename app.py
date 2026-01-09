@@ -47,6 +47,8 @@ _bsky_rate_calls: deque[float] = deque(maxlen=_BSKY_RATE_MAX)
 _FEED_RATE_WINDOW = 1.0
 _FEED_RATE_MAX = 3
 _feed_rate_calls: deque[float] = deque(maxlen=_FEED_RATE_MAX)
+_NITTER_RETWEET_RE = re.compile(r"^RT by\s+(@?[\w.]+):?\s*(.*)", re.IGNORECASE)
+_nitter_avatar_cache: dict[str, str] = {}
 
 
 def _load_events(path: Path) -> List[dict]:
@@ -140,6 +142,50 @@ def _resolve_youtube_feed_url(url: str) -> str | None:
         return None
     rss_url = match.group(1).replace("\\u0026", "&").replace("\\/", "/")
     return rss_url
+
+
+def _nitter_base_url(feed_url: str) -> str:
+    try:
+        parsed = urlparse(feed_url)
+    except Exception:
+        return ""
+    host = (parsed.hostname or "").lower()
+    if "nitter" not in host:
+        return ""
+    scheme = parsed.scheme or "http"
+    return f"{scheme}://{parsed.netloc}" if parsed.netloc else ""
+
+
+def _fetch_nitter_avatar(base_url: str, handle: str) -> str:
+    key = f"{base_url}|{handle}"
+    if key in _nitter_avatar_cache:
+        return _nitter_avatar_cache[key]
+    clean_handle = (handle or "").lstrip("@")
+    if not base_url or not clean_handle:
+        return ""
+    profile_url = f"{base_url.rstrip('/')}/{clean_handle}"
+    try:
+        resp = requests.get(
+            profile_url,
+            timeout=8,
+            headers={"User-Agent": "SimpleRSSWebui/1.0"},
+        )
+        resp.raise_for_status()
+        avatar_match = re.search(r'class="avatar"[^>]*src="(?P<src>[^"<>]+)"', resp.text)
+        if not avatar_match:
+            avatar_match = re.search(r'src="(?P<src>/pic/[^"<>]*profile_images[^"<>]*)"', resp.text)
+        if not avatar_match:
+            avatar_match = re.search(r'src="(?P<src>/pic/[^"<>]+)"', resp.text)
+        match = avatar_match
+        if match:
+            src = match.group("src")
+            url = src if src.startswith(("http://", "https://")) else f"{base_url.rstrip('/')}{src}"
+            _nitter_avatar_cache[key] = url
+            return url
+    except Exception:
+        pass
+    _nitter_avatar_cache[key] = ""
+    return ""
 
 
 def _display_feed_title(feed_url: str, title: str | None) -> str:
@@ -451,6 +497,39 @@ def _entry_author(entry: dict) -> str:
     return str(getattr(details, "name", "") or getattr(details, "email", "") or "").strip()
 
 
+def _parse_nitter_retweet(feed_url: str, entry: dict, feed_image: str = "") -> dict | None:
+    base_url = _nitter_base_url(feed_url)
+    if not base_url:
+        return None
+    title_raw = str(entry.get("title") or "").strip()
+    match = _NITTER_RETWEET_RE.match(title_raw)
+    if not match:
+        return None
+    retweeter = match.group(1).lstrip("@")
+    original_title = match.group(2).strip()
+    author_raw = _entry_author(entry)
+    author = author_raw.lstrip("@") if author_raw else ""
+    if not author:
+        try:
+            parsed_link = urlparse(str(entry.get("link") or ""))
+            parts = (parsed_link.path or "").strip("/").split("/")
+            if parts and parts[0]:
+                author = parts[0].lstrip("@")
+        except Exception:
+            author = ""
+    original_handle = f"@{author}" if author else ""
+    retweeter_handle = f"@{retweeter}" if retweeter else ""
+    original_avatar = _fetch_nitter_avatar(base_url, original_handle) if original_handle else ""
+    retweeter_avatar = feed_image if str(feed_image or "").startswith(("http://", "https://")) else ""
+    return {
+        "retweeter": retweeter_handle,
+        "original_author": original_handle,
+        "original_title": original_title,
+        "original_avatar": original_avatar,
+        "retweeter_avatar": retweeter_avatar,
+    }
+
+
 def _thumbnail_from_entry(entry: dict) -> str:
     def safe_url(val: object) -> str:
         url = str(val or "")
@@ -626,6 +705,11 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
     ids = _entry_id(feed_url, entry)
     if not title:
         title = _entry_author(entry) or (display_feed_title or (_entry_id(feed_url, entry) or "(no title)"))
+    retweet_info = _parse_nitter_retweet(feed_url, entry, feed_image)
+    if retweet_info:
+        rt_handle = retweet_info.get("retweeter") or ""
+        rt_display = rt_handle.lstrip("@")
+        title = f"{rt_display} retweeted" if rt_display else "Retweeted"
     link = entry.get("link")
     is_youtube = _is_youtube_feed(feed_url)
     youtube_views = _youtube_view_count(entry) if is_youtube else None
@@ -679,6 +763,17 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
         item["youtube_views"] = youtube_views
     if like_count is not None:
         item["like_count"] = like_count
+    if retweet_info:
+        if retweet_info.get("retweeter"):
+            item["retweet_by"] = retweet_info["retweeter"]
+        if retweet_info.get("retweeter_avatar"):
+            item["retweet_by_avatar"] = retweet_info["retweeter_avatar"]
+        if retweet_info.get("original_author"):
+            item["retweet_original_author"] = retweet_info["original_author"]
+        if retweet_info.get("original_avatar"):
+            item["retweet_original_avatar"] = retweet_info["original_avatar"]
+        if retweet_info.get("original_title"):
+            item["retweet_original_title"] = retweet_info["original_title"]
     return item
 
 
@@ -1234,4 +1329,4 @@ def api_unmark_viewed():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", "5888")))

@@ -224,9 +224,33 @@
       object-fit: cover;
       flex: 0 0 auto;
     }
+    .rt-icon {
+      display: inline-flex;
+      vertical-align: middle;
+      margin-right: 6px;
+      color: #a5f3fc;
+      line-height: 0;
+    }
+    .rt-icon svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+    }
     .meta {
       color: #cbd5e1;
       font-size: 14px;
+    }
+    .meta-avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      object-fit: cover;
+      vertical-align: middle;
+    }
+    .retweet-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
     .summary {
       color: #e2e8f0;
@@ -928,35 +952,52 @@
     const renderItems = (items) => {
       itemsList.innerHTML = (items || []).map((item) => {
         const titleText = String(item.title || "(untitled)");
-        const title = esc(titleText);
+        const retweetByRaw = typeof item.retweet_by === "string" ? item.retweet_by.trim() : "";
+        const retweetByDisplay = retweetByRaw.startsWith("@") ? retweetByRaw.slice(1) : retweetByRaw;
+        const retweetBy = retweetByDisplay;
+        const retweetOriginalRaw = typeof item.retweet_original_author === "string" ? item.retweet_original_author.trim() : "";
+        const retweetOriginal = retweetOriginalRaw ? (retweetOriginalRaw.startsWith("@") ? retweetOriginalRaw : `@${retweetOriginalRaw}`) : "";
+        const retweetOriginalAvatar = safeUrl(item.retweet_original_avatar || "");
+        const retweetByAvatar = safeUrl(item.retweet_by_avatar || "");
+        const isRetweet = Boolean(retweetBy);
+        const displayTitleText = isRetweet ? `${retweetBy || "Retweeted"} retweeted` : titleText;
+        const title = esc(displayTitleText);
         const safeLink = esc(item.link || "");
         const link = item.link ? `<a href="${safeLink}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
+        const retweetIcon = isRetweet
+          ? `<span class="rt-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M2 16.25a.75.75 0 0 0 0 1.5zm3.603 1.5a.75.75 0 0 0 0-1.5zm5.145-3.663l-.643-.386zm2.504-4.174l.643.386zM22 7l.53.53a.75.75 0 0 0 0-1.06zm-2.53 1.47a.75.75 0 0 0 1.06 1.06zm1.06-4a.75.75 0 1 0-1.06 1.06zm-5.31 2.92l-.369-.653zm-6.5 8.338a.75.75 0 1 0 1.024 1.096zM2 17.75h3.603v-1.5H2zm9.39-3.277l2.505-4.174l-1.286-.772l-2.504 4.174zm7.007-6.723H22v-1.5h-3.603zm3.073-1.28l-2 2l1.06 1.06l2-2zm1.06 0l-2-2l-1.06 1.06l2 2zm-8.635 3.829c.434-.724.734-1.22 1.006-1.589c.263-.355.468-.543.689-.668l-.739-1.305c-.467.264-.82.627-1.155 1.08c-.326.44-.668 1.011-1.087 1.71zm4.502-4.049c-.815 0-1.48 0-2.025.052c-.562.055-1.054.17-1.521.435l.739 1.305c.22-.125.487-.204.927-.247c.456-.044 1.036-.045 1.88-.045zm-8.292 7.451c-.677 1.128-1.02 1.686-1.385 2.027l1.024 1.096c.557-.52 1.02-1.306 1.647-2.351zM2 6.25a.75.75 0 0 0 0 1.5zM22 17l.53.53a.75.75 0 0 0 0-1.06zm-1.47-2.53a.75.75 0 1 0-1.06 1.06zm-1.06 4a.75.75 0 1 0 1.06 1.06zm-3.345-1.525l.144-.736zm-1.682-2.33a.75.75 0 1 0-1.286.77zm.025 1.391l.558-.501zm-6.593-8.95l.143-.737zm1.682 2.33a.75.75 0 0 0 1.286-.772zm-.025-1.393l-.558.502zM2 7.75h4.668v-1.5H2zm15.332 10H22v-1.5h-4.668zm5.198-1.28l-2-2l-1.06 1.06l2 2zm-1.06 0l-2 2l1.06 1.06l2-2zm-4.138-.22c-.645 0-.867-.003-1.063-.041l-.287 1.472c.372.072.765.069 1.35.069zm-4.175-.864c.3.502.5.84.754 1.122l1.115-1.003c-.134-.149-.25-.337-.583-.89zm3.112.823a2.25 2.25 0 0 1-1.243-.704l-1.115 1.003a3.75 3.75 0 0 0 2.071 1.173zM6.668 7.75c.645 0 .867.003 1.063.041l.287-1.472c-.372-.072-.765-.069-1.35-.069zm4.175.864c-.3-.502-.5-.84-.754-1.122L8.974 8.495c.134.149.25.337.583.89zm-3.112-.823c.48.094.916.34 1.243.704l1.115-1.003a3.75 3.75 0 0 0-2.071-1.173z"/></svg></span>`
+          : "";
         const feedNameRaw = feedTitles[item.feed] || item.feed_title || item.feed;
         const feedName = typeof feedNameRaw === "string" ? feedNameRaw : "";
         const isYoutube = typeof item.feed === "string" && item.feed.includes("youtube.com/feeds/videos.xml");
         const blueskyAvatarUrl = safeUrl(item.bluesky_author_avatar || "");
         const feedAvatarUrl = !isYoutube ? safeUrl(item.feed_image || "") : "";
-        const avatarUrl = blueskyAvatarUrl || feedAvatarUrl;
+        const avatarUrl = isRetweet
+          ? retweetOriginalAvatar
+          : (blueskyAvatarUrl || feedAvatarUrl);
         const avatarAlt = esc(
-          blueskyAvatarUrl
-            ? (item.bluesky_author_display || item.bluesky_author_handle || titleText || "Author")
-            : (feedName || titleText || "Feed")
+          isRetweet
+            ? (retweetOriginal || displayTitleText || "Original author")
+            : (
+              blueskyAvatarUrl
+                ? (item.bluesky_author_display || item.bluesky_author_handle || displayTitleText || "Author")
+                : (feedName || displayTitleText || "Feed")
+            )
         );
         const avatar = avatarUrl
           ? `<img class="item-avatar" src="${esc(avatarUrl)}" alt="${avatarAlt}" loading="lazy" />`
           : "";
+        const linkWithIcon = isRetweet ? `${retweetIcon}${link}` : link;
         const titleBlock = avatarUrl
-          ? `<div class="item-title with-avatar">${avatar}${link}</div>`
-          : `<div class="item-title">${link}</div>`;
+          ? `<div class="item-title with-avatar">${avatar}${linkWithIcon}</div>`
+          : `<div class="item-title">${linkWithIcon}</div>`;
         const thumbUrl = safeUrl(item.thumbnail || "");
         const thumbLinkOpen = item.link ? ` href="${safeLink}" target="_blank" rel="noopener noreferrer"` : "";
         const thumb = thumbUrl ? `<div class="thumb-wrap"><a${thumbLinkOpen}><img class="thumb" src="${esc(thumbUrl)}" alt="" loading="lazy" /></a></div>` : "";
-        const showFeedName = feedName && feedName.trim().toLowerCase() !== titleText.trim().toLowerCase();
+        const showFeedName = feedName && feedName.trim().toLowerCase() !== displayTitleText.trim().toLowerCase();
         const blueskyHandleRaw = typeof item.bluesky_author_handle === "string" ? item.bluesky_author_handle.trim() : "";
         const blueskyHandle = blueskyHandleRaw ? (blueskyHandleRaw.startsWith("@") ? blueskyHandleRaw : `@${blueskyHandleRaw}`) : "";
-        const metaBits = [];
-        if (blueskyHandle) metaBits.push(esc(blueskyHandle));
-        else if (showFeedName) metaBits.push(esc(feedName));
+        const metaLines = [];
         let youtubeViewsText = "";
         const youtubeViewsRaw = item.youtube_views;
         if (youtubeViewsRaw !== undefined && youtubeViewsRaw !== null) {
@@ -964,8 +1005,19 @@
           if (Number.isFinite(parsed)) youtubeViewsText = `${parsed.toLocaleString()} views`;
         }
         const published = formatTime(item.published);
-        if (published) metaBits.push(esc(published));
-        const meta = metaBits.length ? `<div class="meta">${metaBits.join(" · ")}</div>` : "";
+        const standardMetaBits = [];
+        if (blueskyHandle) standardMetaBits.push(esc(blueskyHandle));
+        else if (!isRetweet && showFeedName) standardMetaBits.push(esc(feedName));
+        if (!isRetweet && published) standardMetaBits.push(esc(published));
+        if (standardMetaBits.length) metaLines.push(`<div class="meta">${standardMetaBits.join(" · ")}</div>`);
+        if (isRetweet) {
+          const originalPieces = [];
+          if (retweetOriginal) originalPieces.push(esc(retweetOriginal));
+          if (published) originalPieces.push(esc(published));
+          const retweetLabel = originalPieces.join(" · ");
+          if (retweetLabel) metaLines.push(`<div class="meta retweet-meta">${retweetLabel}</div>`);
+        }
+        const meta = metaLines.join("");
         const summaryParts = [];
         if (item.summary) summaryParts.push(`<div class="summary">${sanitizeSummary(item.summary)}</div>`);
         if (youtubeViewsText) summaryParts.push(`<div class="summary">${esc(youtubeViewsText)}</div>`);

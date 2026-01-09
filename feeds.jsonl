@@ -279,3 +279,6 @@
 {"action": "unmark_viewed", "item_id": "https://bsky.app/profile/freya.bsky.social/rss|at://did:plc:5nq3pybl4nnoxfp3ovjy2lh7/app.bsky.feed.post/3maozbtxxi22r"}
 {"action": "unmark_viewed", "item_id": "https://bsky.app/profile/freya.bsky.social/rss|at://did:plc:5nq3pybl4nnoxfp3ovjy2lh7/app.bsky.feed.post/3ma2zgj4w7c27"}
 {"action": "unmark_viewed", "item_id": "https://bsky.app/profile/freya.bsky.social/rss|at://did:plc:5nq3pybl4nnoxfp3ovjy2lh7/app.bsky.feed.post/3ma2frgqxbk27"}
+{"action": "add_folder", "folder": "Favs/Twitter"}
+{"action": "add_folder", "folder": "Favs/Twitter/AI"}
+{"action": "add_feed", "url": "http://nitter.phylliidaassets.org/repligate/rss", "folder": "Favs/Twitter/AI"}
