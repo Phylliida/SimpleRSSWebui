@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import html
 from datetime import datetime, timezone
 from html import escape
 from io import BytesIO
@@ -48,6 +49,8 @@ _FEED_RATE_WINDOW = 1.0
 _FEED_RATE_MAX = 3
 _feed_rate_calls: deque[float] = deque(maxlen=_FEED_RATE_MAX)
 _NITTER_RETWEET_RE = re.compile(r"^RT by\s+(@?[\w.]+):?\s*(.*)", re.IGNORECASE)
+_NITTER_QUOTE_BLOCK_RE = re.compile(r"<blockquote\b[^>]*>(.*?)</blockquote>", re.IGNORECASE | re.DOTALL)
+_NITTER_HREF_RE = re.compile(r'href="([^"]+)"', re.IGNORECASE)
 _nitter_avatar_cache: dict[str, str] = {}
 
 
@@ -521,6 +524,8 @@ def _parse_nitter_retweet(feed_url: str, entry: dict, feed_image: str = "") -> d
     retweeter_handle = f"@{retweeter}" if retweeter else ""
     original_avatar = _fetch_nitter_avatar(base_url, original_handle) if original_handle else ""
     retweeter_avatar = feed_image if str(feed_image or "").startswith(("http://", "https://")) else ""
+    if not retweeter_avatar and retweeter_handle:
+        retweeter_avatar = _fetch_nitter_avatar(base_url, retweeter_handle)
     return {
         "retweeter": retweeter_handle,
         "original_author": original_handle,
@@ -528,6 +533,46 @@ def _parse_nitter_retweet(feed_url: str, entry: dict, feed_image: str = "") -> d
         "original_avatar": original_avatar,
         "retweeter_avatar": retweeter_avatar,
     }
+
+
+def _extract_nitter_quote_handle(feed_url: str, summary_html: str) -> str:
+    summary_text = str(summary_html or "")
+    if not summary_text or "blockquote" not in summary_text.lower():
+        return ""
+    base_url = _nitter_base_url(feed_url)
+    if not base_url:
+        return ""
+    match = _NITTER_QUOTE_BLOCK_RE.search(summary_text)
+    if not match:
+        return ""
+    inner = match.group(1)
+    href_match = _NITTER_HREF_RE.search(inner)
+    if not href_match:
+        return ""
+    href = html.unescape(href_match.group(1))
+    try:
+        parsed = urlparse(href)
+    except Exception:
+        return ""
+    host = (parsed.hostname or "").lower()
+    if "nitter" not in host:
+        return ""
+    parts = (parsed.path or "").strip("/").split("/")
+    if not parts or not parts[0]:
+        return ""
+    handle = parts[0].lstrip("@")
+    return f"@{handle}" if handle else ""
+
+
+def _extract_nitter_quote_avatar(feed_url: str, summary_html: str) -> tuple[str, str]:
+    handle = _extract_nitter_quote_handle(feed_url, summary_html)
+    if not handle:
+        return "", ""
+    base_url = _nitter_base_url(feed_url)
+    if not base_url:
+        return handle, ""
+    avatar = _fetch_nitter_avatar(base_url, handle)
+    return handle, avatar
 
 
 def _thumbnail_from_entry(entry: dict) -> str:
@@ -721,6 +766,10 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
     summary_value = entry.get("summary") or entry.get("description") or ""
     if is_youtube:
         summary_value = ""
+    quote_handle = ""
+    quote_avatar = ""
+    if "nitter" in (urlparse(feed_url).hostname or "").lower():
+        quote_handle, quote_avatar = _extract_nitter_quote_avatar(feed_url, summary_value)
     if bluesky_json:
         summary_value = _bluesky_summary_html(bluesky_json, link) or json.dumps(bluesky_json)
         post = (bluesky_json.get("thread") or {}).get("post") or {}
@@ -774,6 +823,10 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
             item["retweet_original_avatar"] = retweet_info["original_avatar"]
         if retweet_info.get("original_title"):
             item["retweet_original_title"] = retweet_info["original_title"]
+    if quote_handle:
+        item["quote_author"] = quote_handle
+    if quote_avatar:
+        item["quote_avatar"] = quote_avatar
     return item
 
 

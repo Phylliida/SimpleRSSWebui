@@ -283,3 +283,4 @@
 {"action": "add_folder", "folder": "Favs/Twitter/AI"}
 {"action": "add_feed", "url": "http://nitter.phylliidaassets.org/repligate/rss", "folder": "Favs/Twitter/AI"}
 {"action": "add_feed", "url": "http://nitter.phylliidaassets.org/TaliaRinger/rss", "folder": "Favs/Twitter/AI"}
+{"action": "add_feed", "url": "https://papers.takara.ai/api/feed", "folder": "Favs/AI"}

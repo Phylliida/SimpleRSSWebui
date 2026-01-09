@@ -306,6 +306,9 @@
     .summary blockquote.quote-with-avatar {
       padding-left: 60px;
     }
+    .summary blockquote.quote-clickable {
+      cursor: pointer;
+    }
     .summary blockquote.quote-with-avatar::after {
       content: "";
       position: absolute;
@@ -977,7 +980,14 @@
         if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || "");
         if (node.nodeType !== Node.ELEMENT_NODE) return null;
         const tag = node.tagName.toLowerCase();
-        if (drop.has(tag)) return null;
+        if (drop.has(tag)) {
+          const frag = document.createDocumentFragment();
+          node.childNodes.forEach((child) => {
+            const cleaned = clean(child);
+            if (cleaned) frag.appendChild(cleaned);
+          });
+          return frag;
+        }
         if (!allowed.has(tag)) return document.createTextNode(node.textContent || "");
         const el = document.createElement(tag);
         (attrAllow[tag] || []).forEach((attr) => {
@@ -1062,9 +1072,20 @@
       blockquotes.forEach((blockquote) => {
         const summaryEl = blockquote.closest(".summary");
         const avatar = summaryEl && summaryEl.dataset ? summaryEl.dataset.quoteAvatar : "";
+        const linkEl = blockquote.querySelector("a[href^='http']");
+        const linkHref = linkEl ? linkEl.getAttribute("href") : "";
         if (!avatar) return;
         blockquote.classList.add("quote-with-avatar");
         blockquote.style.setProperty("--quote-avatar", `url("${avatar.replace(/"/g, '\\"')}")`);
+        if (linkHref) {
+          blockquote.classList.add("quote-clickable");
+          blockquote.dataset.quoteLink = linkHref;
+          blockquote.addEventListener("click", (ev) => {
+            if (ev.target.closest("img")) return;
+            if (ev.target.closest("a")) return;
+            window.open(linkHref, "_blank", "noopener,noreferrer");
+          });
+        }
       });
     };
 
@@ -1092,16 +1113,14 @@
         const blueskyAvatarUrl = safeUrl(item.bluesky_author_avatar || "");
         const feedAvatarUrl = !isYoutube ? safeUrl(item.feed_image || "") : "";
         const avatarUrl = isRetweet
-          ? retweetOriginalAvatar
+          ? (retweetOriginalAvatar || retweetByAvatar || blueskyAvatarUrl || feedAvatarUrl)
           : (blueskyAvatarUrl || feedAvatarUrl);
         const isNitterFeed = typeof item.feed === "string" && item.feed.toLowerCase().includes("nitter");
         const hasQuoteBlock = isNitterFeed && typeof item.summary === "string" && item.summary.toLowerCase().includes("<blockquote");
-        const quoteAvatarUrl = hasQuoteBlock
-          ? safeUrl(retweetOriginalAvatar || retweetByAvatar || feedAvatarUrl)
-          : "";
+        const quoteAvatarUrl = hasQuoteBlock ? safeUrl(item.quote_avatar || retweetOriginalAvatar) : "";
         const avatarAlt = esc(
           isRetweet
-            ? (retweetOriginal || displayTitleText || "Original author")
+            ? (retweetOriginal || retweetBy || displayTitleText || "Retweeter")
             : (
               blueskyAvatarUrl
                 ? (item.bluesky_author_display || item.bluesky_author_handle || displayTitleText || "Author")
