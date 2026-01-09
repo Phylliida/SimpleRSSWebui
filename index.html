@@ -227,9 +227,9 @@
     .rt-icon {
       display: inline-flex;
       vertical-align: middle;
-      margin-right: 6px;
       color: #a5f3fc;
       line-height: 0;
+      transform: translateY(3px) translateX(2px);
     }
     .rt-icon svg {
       width: 14px;
@@ -975,6 +975,51 @@
         source: ["src", "type"],
       };
       const safeUrl = (url = "") => (url.startsWith("http://") || url.startsWith("https://")) ? url : "";
+      const isWhitespaceNode = (node) => node && node.nodeType === Node.TEXT_NODE && (node.textContent || "").trim() === "";
+      const isDashTextNode = (node) => {
+        if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+        const text = (node.textContent || "").trim();
+        return text === "—" || text === "-" || text === "–";
+      };
+      const isNitterStatusLink = (href = "") => {
+        if (!href) return false;
+        try {
+          const url = new URL(href, location.href);
+          const host = (url.hostname || "").toLowerCase();
+          if (!host.includes("nitter")) return false;
+          return (url.pathname || "").toLowerCase().includes("/status/");
+        } catch {
+          return false;
+        }
+      };
+      const pruneNitterQuoteFooter = (blockquote) => {
+        if (!blockquote) return;
+        let cursor = blockquote.lastChild;
+        const trailingWhitespace = [];
+        while (cursor && isWhitespaceNode(cursor)) {
+          trailingWhitespace.push(cursor);
+          cursor = cursor.previousSibling;
+        }
+        if (!cursor) return;
+        const last = cursor;
+        cursor = last.previousSibling;
+        const midWhitespace = [];
+        while (cursor && isWhitespaceNode(cursor)) {
+          midWhitespace.push(cursor);
+          cursor = cursor.previousSibling;
+        }
+        const dashNode = cursor;
+        const linkNode = last.nodeType === Node.ELEMENT_NODE && last.tagName.toLowerCase() === "a" && isNitterStatusLink(last.getAttribute("href") || "");
+        if (linkNode && isDashTextNode(dashNode)) {
+          blockquote.removeChild(last);
+          blockquote.removeChild(dashNode);
+          midWhitespace.forEach((n) => blockquote.removeChild(n));
+          trailingWhitespace.forEach((n) => blockquote.removeChild(n));
+          while (blockquote.lastChild && isWhitespaceNode(blockquote.lastChild)) {
+            blockquote.removeChild(blockquote.lastChild);
+          }
+        }
+      };
       const doc = new DOMParser().parseFromString(html, "text/html");
       const clean = (node) => {
         if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || "");
@@ -1013,6 +1058,9 @@
           const cleaned = clean(child);
           if (cleaned) el.appendChild(cleaned);
         });
+        if (tag === "blockquote") {
+          pruneNitterQuoteFooter(el);
+        }
         return el;
       };
       const container = document.createElement("div");
