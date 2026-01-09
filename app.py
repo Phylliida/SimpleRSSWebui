@@ -47,7 +47,10 @@ _BSKY_RATE_MAX = 35
 _bsky_rate_calls: deque[float] = deque(maxlen=_BSKY_RATE_MAX)
 _FEED_RATE_WINDOW = 1.0
 _FEED_RATE_MAX = 3
+_NITTER_RATE_WINDOW = 3.0
+_NITTER_RATE_MAX = 1
 _feed_rate_calls: deque[float] = deque(maxlen=_FEED_RATE_MAX)
+_nitter_feed_rate_calls: deque[float] = deque(maxlen=_NITTER_RATE_MAX)
 _NITTER_RETWEET_RE = re.compile(r"^RT by\s+(@?[\w.]+):?\s*(.*)", re.IGNORECASE)
 _NITTER_QUOTE_BLOCK_RE = re.compile(r"<blockquote\b[^>]*>(.*?)</blockquote>", re.IGNORECASE | re.DOTALL)
 _NITTER_HREF_RE = re.compile(r'href="([^"]+)"', re.IGNORECASE)
@@ -158,6 +161,15 @@ def _nitter_base_url(feed_url: str) -> str:
         return ""
     scheme = parsed.scheme or "http"
     return f"{scheme}://{parsed.netloc}" if parsed.netloc else ""
+
+
+def _is_nitter_feed(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    host = (parsed.hostname or "").lower()
+    return "nitter" in host
 
 
 def _fetch_nitter_avatar(base_url: str, handle: str) -> str:
@@ -737,6 +749,16 @@ def _feed_rate_limit():
     _feed_rate_calls.append(time.time())
 
 
+def _nitter_feed_rate_limit():
+    now = time.time()
+    if len(_nitter_feed_rate_calls) == _NITTER_RATE_MAX:
+        earliest = _nitter_feed_rate_calls[0]
+        elapsed = now - earliest
+        if elapsed < _NITTER_RATE_WINDOW:
+            time.sleep(_NITTER_RATE_WINDOW - elapsed)
+    _nitter_feed_rate_calls.append(time.time())
+
+
 def _fetch_bluesky_post_json(link: str) -> dict | None:
     parsed = _bluesky_handle_rkey_from_link(link)
     if not parsed:
@@ -770,8 +792,9 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
     title = entry.get("title")
     display_feed_title = _display_feed_title(feed_url, feed_title)
     ids = _entry_id(feed_url, entry)
+    author_raw = _entry_author(entry)
     if not title:
-        title = _entry_author(entry) or (display_feed_title or (_entry_id(feed_url, entry) or "(no title)"))
+        title = author_raw or (display_feed_title or (_entry_id(feed_url, entry) or "(no title)"))
     retweet_info = _parse_nitter_retweet(feed_url, entry, feed_image)
     if retweet_info:
         rt_handle = retweet_info.get("retweeter") or ""
@@ -803,6 +826,10 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
             retweet_count = retweets
         if likes_from_nitter is not None and like_count is None:
             like_count = likes_from_nitter
+        if not retweet_info:
+            author_clean = author_raw.lstrip("@") if author_raw else ""
+            if author_clean:
+                title = author_clean
     if bluesky_json:
         summary_value = _bluesky_summary_html(bluesky_json, link) or json.dumps(bluesky_json)
         post = (bluesky_json.get("thread") or {}).get("post") or {}
@@ -871,7 +898,10 @@ def _gather_feed_items(feeds: Iterable[str]) -> List[dict]:
     items: List[dict] = []
     for url in feeds:
         try:
-            _feed_rate_limit()
+            if _is_nitter_feed(url):
+                _nitter_feed_rate_limit()
+            else:
+                _feed_rate_limit()
             parsed = feedparser.parse(url)
         except Exception:
             continue
