@@ -1138,6 +1138,10 @@
     };
 
     const renderItems = (items) => {
+      const toCount = (val) => {
+        const num = Number(val);
+        return Number.isFinite(num) && num >= 0 ? num : null;
+      };
       itemsList.innerHTML = (items || []).map((item) => {
         const titleText = String(item.title || "(untitled)");
         const retweetByRaw = typeof item.retweet_by === "string" ? item.retweet_by.trim() : "";
@@ -1163,8 +1167,19 @@
         const avatarUrl = isRetweet
           ? (retweetOriginalAvatar || retweetByAvatar || blueskyAvatarUrl || feedAvatarUrl)
           : (blueskyAvatarUrl || feedAvatarUrl);
+        const isBlueskyItem = Boolean(item.bluesky_json);
+        const rawSummary = typeof item.summary === "string" ? item.summary : "";
+        const repliesCount = toCount(item.reply_count);
+        const retweetCount = toCount(item.retweet_count);
+        const likesCount = toCount(item.like_count);
         const isNitterFeed = typeof item.feed === "string" && item.feed.toLowerCase().includes("nitter");
-        const hasQuoteBlock = isNitterFeed && typeof item.summary === "string" && item.summary.toLowerCase().includes("<blockquote");
+        let summaryForRender = rawSummary;
+        if (isNitterFeed && (repliesCount !== null || retweetCount !== null || likesCount !== null)) {
+          summaryForRender = summaryForRender.replace(/<div>\s*Replies:\s*\d+\s*·\s*Retweets?:\s*\d+\s*·\s*Likes:\s*\d+\s*<\/div>/i, "");
+          summaryForRender = summaryForRender.replace(/Replies:\s*\d+\s*·\s*Retweets?:\s*\d+\s*·\s*Likes:\s*\d+\s*/i, "");
+        }
+        const hasCountsInSummary = /Replies:\s*\d+/i.test(summaryForRender);
+        const hasQuoteBlock = isNitterFeed && summaryForRender.toLowerCase().includes("<blockquote");
         const quoteAvatarUrl = hasQuoteBlock ? safeUrl(item.quote_avatar || retweetOriginalAvatar) : "";
         const avatarAlt = esc(
           isRetweet
@@ -1210,13 +1225,20 @@
         }
         const meta = metaLines.join("");
         const summaryParts = [];
-        if (item.summary) {
+        if (summaryForRender) {
           const summaryAttrs = [];
           if (quoteAvatarUrl) summaryAttrs.push(`data-quote-avatar="${esc(quoteAvatarUrl)}"`);
           const attrs = summaryAttrs.length ? ` ${summaryAttrs.join(" ")}` : "";
-          summaryParts.push(`<div class="summary"${attrs}>${sanitizeSummary(item.summary)}</div>`);
+          summaryParts.push(`<div class="summary"${attrs}>${sanitizeSummary(summaryForRender)}</div>`);
         }
         if (youtubeViewsText) summaryParts.push(`<div class="summary">${esc(youtubeViewsText)}</div>`);
+        if (!isBlueskyItem && !hasCountsInSummary && (repliesCount !== null || retweetCount !== null || likesCount !== null)) {
+          const countBits = [];
+          if (repliesCount !== null) countBits.push(`Replies: ${repliesCount}`);
+          if (retweetCount !== null) countBits.push(`Retweets: ${retweetCount}`);
+          if (likesCount !== null) countBits.push(`Likes: ${likesCount}`);
+          if (countBits.length) summaryParts.push(`<div class="summary">${esc(countBits.join(" · "))}</div>`);
+        }
         const summary = summaryParts.join("");
         const viewed = Boolean(item.viewed);
         const bookmarked = item.bookmarked === true || item.bookmarked === "true";

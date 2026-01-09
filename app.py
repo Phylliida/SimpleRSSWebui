@@ -51,6 +51,7 @@ _feed_rate_calls: deque[float] = deque(maxlen=_FEED_RATE_MAX)
 _NITTER_RETWEET_RE = re.compile(r"^RT by\s+(@?[\w.]+):?\s*(.*)", re.IGNORECASE)
 _NITTER_QUOTE_BLOCK_RE = re.compile(r"<blockquote\b[^>]*>(.*?)</blockquote>", re.IGNORECASE | re.DOTALL)
 _NITTER_HREF_RE = re.compile(r'href="([^"]+)"', re.IGNORECASE)
+_NITTER_COUNTS_RE = re.compile(r"Replies:\s*(\d+)\s*·\s*Retweets?:\s*(\d+)\s*·\s*Likes:\s*(\d+)", re.IGNORECASE)
 _nitter_avatar_cache: dict[str, str] = {}
 
 
@@ -575,6 +576,27 @@ def _extract_nitter_quote_avatar(feed_url: str, summary_html: str) -> tuple[str,
     return handle, avatar
 
 
+def _parse_nitter_counts(summary_html: str) -> tuple[int | None, int | None, int | None]:
+    if not summary_html:
+        return None, None, None
+    text = re.sub(r"<[^>]+>", " ", str(summary_html))
+    match = _NITTER_COUNTS_RE.search(text)
+    if not match:
+        return None, None, None
+
+    def _clean(val: str) -> int | None:
+        try:
+            parsed = int(val)
+            return parsed if parsed >= 0 else None
+        except Exception:
+            return None
+
+    replies = _clean(match.group(1))
+    retweets = _clean(match.group(2))
+    likes = _clean(match.group(3))
+    return replies, retweets, likes
+
+
 def _thumbnail_from_entry(entry: dict) -> str:
     def safe_url(val: object) -> str:
         url = str(val or "")
@@ -756,20 +778,31 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
         rt_display = rt_handle.lstrip("@")
         title = f"{rt_display} retweeted" if rt_display else "Retweeted"
     link = entry.get("link")
+    feed_host = (urlparse(feed_url).hostname or "").lower()
     is_youtube = _is_youtube_feed(feed_url)
+    is_nitter = "nitter" in feed_host
     youtube_views = _youtube_view_count(entry) if is_youtube else None
     bluesky_json = _fetch_bluesky_post_json(link) if link else None
     bluesky_author_avatar = ""
     bluesky_author_handle = ""
     bluesky_author_display = ""
     like_count: int | None = None
+    reply_count: int | None = None
+    retweet_count: int | None = None
     summary_value = entry.get("summary") or entry.get("description") or ""
     if is_youtube:
         summary_value = ""
     quote_handle = ""
     quote_avatar = ""
-    if "nitter" in (urlparse(feed_url).hostname or "").lower():
+    if is_nitter:
         quote_handle, quote_avatar = _extract_nitter_quote_avatar(feed_url, summary_value)
+        replies, retweets, likes_from_nitter = _parse_nitter_counts(summary_value)
+        if replies is not None:
+            reply_count = replies
+        if retweets is not None:
+            retweet_count = retweets
+        if likes_from_nitter is not None and like_count is None:
+            like_count = likes_from_nitter
     if bluesky_json:
         summary_value = _bluesky_summary_html(bluesky_json, link) or json.dumps(bluesky_json)
         post = (bluesky_json.get("thread") or {}).get("post") or {}
@@ -812,6 +845,10 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
         item["youtube_views"] = youtube_views
     if like_count is not None:
         item["like_count"] = like_count
+    if reply_count is not None:
+        item["reply_count"] = reply_count
+    if retweet_count is not None:
+        item["retweet_count"] = retweet_count
     if retweet_info:
         if retweet_info.get("retweeter"):
             item["retweet_by"] = retweet_info["retweeter"]
