@@ -293,10 +293,32 @@
       border-radius: 8px;
     }
     .summary blockquote {
-      border-left: 3px solid rgba(125, 211, 252, 0.6);
-      margin: 10px 0;
-      padding-left: 12px;
+      position: relative;
+      margin: 12px 0;
+      padding: 12px 14px 12px 16px;
       color: #cbd5e1;
+      border: 1px solid rgba(125, 211, 252, 0.26);
+      border-left-width: 4px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.7);
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.24);
+    }
+    .summary blockquote.quote-with-avatar {
+      padding-left: 60px;
+    }
+    .summary blockquote.quote-with-avatar::after {
+      content: "";
+      position: absolute;
+      top: 8px;
+      left: 12px;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: #0f172a;
+      background-image: var(--quote-avatar);
+      background-size: cover;
+      background-position: center;
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.35);
     }
     .summary hr {
       border: none;
@@ -1034,6 +1056,18 @@
       return container.innerHTML;
     };
 
+    const applyQuoteAvatars = (root = document) => {
+      if (!root) return;
+      const blockquotes = root.querySelectorAll(".summary[data-quote-avatar] blockquote");
+      blockquotes.forEach((blockquote) => {
+        const summaryEl = blockquote.closest(".summary");
+        const avatar = summaryEl && summaryEl.dataset ? summaryEl.dataset.quoteAvatar : "";
+        if (!avatar) return;
+        blockquote.classList.add("quote-with-avatar");
+        blockquote.style.setProperty("--quote-avatar", `url("${avatar.replace(/"/g, '\\"')}")`);
+      });
+    };
+
     const renderItems = (items) => {
       itemsList.innerHTML = (items || []).map((item) => {
         const titleText = String(item.title || "(untitled)");
@@ -1060,6 +1094,11 @@
         const avatarUrl = isRetweet
           ? retweetOriginalAvatar
           : (blueskyAvatarUrl || feedAvatarUrl);
+        const isNitterFeed = typeof item.feed === "string" && item.feed.toLowerCase().includes("nitter");
+        const hasQuoteBlock = isNitterFeed && typeof item.summary === "string" && item.summary.toLowerCase().includes("<blockquote");
+        const quoteAvatarUrl = hasQuoteBlock
+          ? safeUrl(retweetOriginalAvatar || retweetByAvatar || feedAvatarUrl)
+          : "";
         const avatarAlt = esc(
           isRetweet
             ? (retweetOriginal || displayTitleText || "Original author")
@@ -1104,7 +1143,12 @@
         }
         const meta = metaLines.join("");
         const summaryParts = [];
-        if (item.summary) summaryParts.push(`<div class="summary">${sanitizeSummary(item.summary)}</div>`);
+        if (item.summary) {
+          const summaryAttrs = [];
+          if (quoteAvatarUrl) summaryAttrs.push(`data-quote-avatar="${esc(quoteAvatarUrl)}"`);
+          const attrs = summaryAttrs.length ? ` ${summaryAttrs.join(" ")}` : "";
+          summaryParts.push(`<div class="summary"${attrs}>${sanitizeSummary(item.summary)}</div>`);
+        }
         if (youtubeViewsText) summaryParts.push(`<div class="summary">${esc(youtubeViewsText)}</div>`);
         const summary = summaryParts.join("");
         const viewed = Boolean(item.viewed);
@@ -1131,6 +1175,7 @@
           ${summary}
         </li>`;
       }).join("");
+      applyQuoteAvatars(itemsList);
     };
 
     const setStatus = (text, isError = false) => {
