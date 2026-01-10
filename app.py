@@ -1227,6 +1227,7 @@ def _collect_items(
     sort_by: str = "recent",
     time_range: str = "all",
     view_filter: str = "unviewed",
+    per_source_limit: int | None = None,
 ) -> tuple[List[dict], int, dict[str, str]]:
     view_mode = (view_filter or "").lower()
     if view_mode not in {"all", "viewed", "unviewed"}:
@@ -1266,10 +1267,34 @@ def _collect_items(
         except Exception:
             return -1
 
+    def _score(item: dict) -> int:
+        likes = _pos_int(item.get("like_count"))
+        views = _pos_int(item.get("youtube_views"))
+        return max(likes, views)
+
     if key == "views":
         items.sort(key=lambda i: (_pos_int(i.get("youtube_views")), i.get("_ts", 0)), reverse=True)
     elif key == "likes":
         items.sort(key=lambda i: (_pos_int(i.get("like_count")), i.get("_ts", 0)), reverse=True)
+    elif key == "best":
+        cap = per_source_limit if per_source_limit is not None else 0
+        def _group_key(item: dict) -> str:
+            feed = str(item.get("feed") or "")
+            if feed == TWITTER_FEED_URL:
+                author = str(item.get("retweet_original_author") or item.get("title") or "").strip()
+                if author.startswith("@"):
+                    author = author[1:]
+                return f"{feed}|{author}" if author else feed
+            return feed
+        grouped: dict[str, list[dict]] = {}
+        for item in items:
+            grouped.setdefault(_group_key(item), []).append(item)
+        ranked: list[dict] = []
+        for feed_items in grouped.values():
+            feed_items.sort(key=lambda i: (_score(i), i.get("_ts", 0)), reverse=True)
+            ranked.extend(feed_items if cap <= 0 else feed_items[:cap])
+        ranked.sort(key=lambda i: (_score(i), i.get("_ts", 0)), reverse=True)
+        items = ranked
     else:
         items.sort(key=lambda i: i.get("_ts", 0), reverse=True)
     total = len(items)
@@ -1586,8 +1611,12 @@ def api_list_items():
         str(request.args.get("favorites_only", "")).lower() in {"1", "true", "yes", "on"}
     )
     sort_by = str(request.args.get("sort", "recent") or "").lower()
-    if sort_by not in {"recent", "views", "likes"}:
+    if sort_by not in {"recent", "views", "likes", "best"}:
         sort_by = "recent"
+    try:
+        per_source_limit = int(request.args.get("per_source", "0"))
+    except (ValueError, TypeError):
+        per_source_limit = 0
     time_range = str(request.args.get("range", "all") or "").lower()
     if time_range not in {"all", "today", "week", "month"}:
         time_range = "all"
@@ -1671,6 +1700,7 @@ def api_list_items():
         sort_by=sort_by,
         time_range=time_range,
         view_filter=view_filter,
+        per_source_limit=per_source_limit,
     )
     page_size = limit if limit and limit > 0 else total
     return jsonify(

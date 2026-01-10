@@ -140,6 +140,7 @@ async def scrape_list(
     Open the list in a real browser window, optionally pause for manual login,
     scroll, and return visible post text.
     """
+    '''
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Starting browser with profile at {PROFILE_DIR}")
 
@@ -181,9 +182,12 @@ async def scrape_list(
     if not html_chunks:
         print("No HTML captured; nothing to parse")
         return []
-
+    '''
+    with open("twitter_scrolls.log", "r") as f:
+        html_chunks = re.split(r"\n\n<!-- scroll \d+ -->\n", f.read())
+        html_chunks = html_chunks[:len(html_chunks)//2]
     combined_html = "\n".join(html_chunks)
-    soup = BeautifulSoup(combined_html, "html.parser")
+    soup = BeautifulSoup(combined_html, "lxml")
 
     tweet_objects: List[dict] = []
     seen = set()

@@ -625,6 +625,10 @@
         Items to show (0 = all):
         <input id="item-limit" type="number" min="0" value="50" style="width:90px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(15,23,42,0.8);color:var(--fg);" />
       </label>
+      <label for="per-source-limit" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:14px;color:#cbd5e1;">
+        Top per source (best mode):
+        <input id="per-source-limit" type="number" min="0" value="1" style="width:90px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(15,23,42,0.8);color:var(--fg);" />
+      </label>
       <div style="display:flex;flex-direction:column;gap:8px;margin:6px 0 12px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <button type="button" id="refresh-feeds">Refresh feeds</button>
@@ -679,6 +683,7 @@
     const refreshProgressBar = document.getElementById("refresh-progress-bar");
     const refreshProgressLabel = document.getElementById("refresh-progress-label");
     const itemLimitInput = document.getElementById("item-limit");
+    const perSourceInput = document.getElementById("per-source-limit");
     const viewToggleBtn = document.getElementById("view-toggle");
     const folderFilterSelect = document.getElementById("folder-filter");
     const newFolderInput = document.getElementById("new-folder");
@@ -703,8 +708,8 @@
     let currentPage = parsePositiveInt(initialParams.get("page"), 1);
     const rangeOptions = ["all", "today", "week", "month"];
     const rangeLabels = { all: "All time", today: "Today", week: "Last week", month: "Last month" };
-    const sortOptions = ["recent", "views", "likes"];
-    const sortLabels = { recent: "Most recent", views: "Most views", likes: "Most likes" };
+    const sortOptions = ["recent", "views", "likes", "best"];
+    const sortLabels = { recent: "Most recent", views: "Most views", likes: "Most likes", best: "Best per source" };
     const viewOptions = ["all", "viewed", "unviewed"];
     const viewLabels = { all: "All items", unviewed: "Unviewed only", viewed: "Viewed only" };
     const initialRange = (initialParams.get("range") || "all").toLowerCase();
@@ -736,6 +741,11 @@
     const initialLimit = parsePositiveInt(initialParams.get("limit"), null);
     if (initialLimit !== null && itemLimitInput) {
       itemLimitInput.value = initialLimit;
+    }
+    const initialPerSourceRaw = initialParams.get("per_source");
+    if (perSourceInput && initialPerSourceRaw !== null && initialPerSourceRaw !== "") {
+      const parsedPerSource = parseInt(initialPerSourceRaw, 10);
+      if (Number.isFinite(parsedPerSource) && parsedPerSource >= 0) perSourceInput.value = parsedPerSource;
     }
     if (feedsToggle) {
       feedsToggle.addEventListener("click", (ev) => {
@@ -857,6 +867,10 @@
       if (addFolder) params.set("add_folder", addFolder);
       if (view === "all" || view === "viewed") params.set("include_viewed", "1");
       if (Number.isFinite(limit) && limit > 0) params.set("limit", limit);
+      if (currentSort === "best" && perSourceInput) {
+        const perSourceVal = parseInt(perSourceInput.value, 10);
+        if (Number.isFinite(perSourceVal) && perSourceVal >= 0) params.set("per_source", perSourceVal);
+      }
       if (currentPage > 1) params.set("page", currentPage);
       const nextHash = params.toString();
       const target = nextHash ? `#${nextHash}` : "";
@@ -1470,6 +1484,12 @@
       params.push(`view=${encodeURIComponent(viewParam)}`);
       if (viewParam === "all" || viewParam === "viewed") params.push("include_viewed=1");
       params.push(`sort=${encodeURIComponent(currentSort || "recent")}`);
+      if (currentSort === "best" && perSourceInput) {
+        const perSourceVal = parseInt(perSourceInput.value, 10);
+        if (Number.isFinite(perSourceVal) && perSourceVal >= 0) {
+          params.push(`per_source=${perSourceVal}`);
+        }
+      }
       params.push(`range=${encodeURIComponent(currentRange || "all")}`);
       if (folderFilterSelect.value) params.push(`folder=${encodeURIComponent(folderFilterSelect.value)}`);
       const qs = params.length ? `?${params.join("&")}` : "";
@@ -1782,6 +1802,13 @@
       updateHash();
       fetchItems();
     });
+    if (perSourceInput) {
+      perSourceInput.addEventListener("change", () => {
+        currentPage = 1;
+        updateHash();
+        fetchItems();
+      });
+    }
     folderFilterSelect.addEventListener("change", () => {
       currentPage = 1;
       renderFeeds(feedListCache);
@@ -1841,6 +1868,7 @@
       const viewParam = (params.get("view") || "").toLowerCase();
       const rangeParam = (params.get("range") || "").toLowerCase();
       const sortParam = (params.get("sort") || "").toLowerCase();
+      const perSourceParam = params.get("per_source");
       currentRange = rangeOptions.includes(rangeParam) ? rangeParam : "all";
       currentSort = sortOptions.includes(sortParam) ? sortParam : "recent";
       const nextView = viewOptions.includes(viewParam)
@@ -1852,6 +1880,10 @@
       renderViewLabel();
       if (limit !== null) {
         itemLimitInput.value = limit;
+      }
+      if (perSourceInput && perSourceParam !== null && perSourceParam !== "") {
+        const parsed = parseInt(perSourceParam, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) perSourceInput.value = parsed;
       }
       pendingFolderFromHash = folder;
       pendingAddFolderFromHash = addFolder;
