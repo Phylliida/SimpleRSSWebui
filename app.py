@@ -17,7 +17,8 @@ from html import escape
 from io import BytesIO
 from pathlib import Path
 from collections import deque
-from typing import Iterable, List, Set
+from threading import Lock, Thread
+from typing import Callable, Iterable, List, Set
 from urllib.parse import parse_qs, urlparse
 import re
 
@@ -47,7 +48,7 @@ _BSKY_RATE_MAX = 35
 _bsky_rate_calls: deque[float] = deque(maxlen=_BSKY_RATE_MAX)
 _FEED_RATE_WINDOW = 1.0
 _FEED_RATE_MAX = 3
-_NITTER_RATE_WINDOW = 3.0
+_NITTER_RATE_WINDOW = 6.0
 _NITTER_RATE_MAX = 1
 _feed_rate_calls: deque[float] = deque(maxlen=_FEED_RATE_MAX)
 _nitter_feed_rate_calls: deque[float] = deque(maxlen=_NITTER_RATE_MAX)
@@ -103,6 +104,35 @@ def _cache_last_refreshed() -> str | None:
         return None
     dt = datetime.fromtimestamp(stamp, tz=timezone.utc).replace(microsecond=0)
     return dt.isoformat()
+
+
+_refresh_lock = Lock()
+_refresh_state: dict[str, object] = {
+    "status": "idle",
+    "current": 0,
+    "total": 0,
+    "message": "",
+    "last_error": "",
+    "last_url": "",
+    "items_cached": 0,
+    "started_at": None,
+    "finished_at": None,
+    "last_refreshed": _cache_last_refreshed(),
+}
+
+
+def _refresh_state_snapshot() -> dict:
+    with _refresh_lock:
+        state = dict(_refresh_state)
+    if not state.get("last_refreshed"):
+        state["last_refreshed"] = _cache_last_refreshed()
+    return state
+
+
+def _set_refresh_state(**updates) -> dict:
+    with _refresh_lock:
+        _refresh_state.update(updates)
+        return dict(_refresh_state)
 
 
 def _is_youtube_feed(url: str) -> bool:
@@ -894,16 +924,29 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
     return item
 
 
-def _gather_feed_items(feeds: Iterable[str]) -> List[dict]:
+def _gather_feed_items(
+    feeds: Iterable[str],
+    progress_cb: Callable[[int, int, str], None] | None = None,
+) -> List[dict]:
     items: List[dict] = []
-    for url in feeds:
+    feed_list = list(feeds)
+    total = len(feed_list)
+    for idx, url in enumerate(feed_list, 1):
         try:
+            print(f"Fetching feed {idx}/{total}: {url}", flush=True)
             if _is_nitter_feed(url):
                 _nitter_feed_rate_limit()
             else:
                 _feed_rate_limit()
             parsed = feedparser.parse(url)
         except Exception:
+            parsed = None
+        if progress_cb:
+            try:
+                progress_cb(idx, total, url)
+            except Exception:
+                pass
+        if not parsed:
             continue
         feed_title = _extract_feed_title(url, parsed)
         feed_image = _extract_feed_image(url, parsed)
@@ -912,11 +955,76 @@ def _gather_feed_items(feeds: Iterable[str]) -> List[dict]:
     return items
 
 
-def _refresh_cache(feeds: Iterable[str]) -> List[dict]:
+def _refresh_cache(
+    feeds: Iterable[str],
+    progress_cb: Callable[[int, int, str], None] | None = None,
+) -> List[dict]:
     feed_list = list(feeds)
-    items = _gather_feed_items(feed_list)
+    items = _gather_feed_items(feed_list, progress_cb=progress_cb)
     _save_cache(items)
     return items
+
+
+def _run_refresh_job(feed_list: list[str]) -> None:
+    def _progress(idx: int, total: int, url: str) -> None:
+        _set_refresh_state(current=idx, total=total, last_url=url)
+
+    try:
+        items = _refresh_cache(feed_list, progress_cb=_progress)
+    except Exception as exc:
+        _set_refresh_state(
+            status="error",
+            finished_at=time.time(),
+            last_error=str(exc),
+            message="refresh failed",
+        )
+        return
+    _set_refresh_state(
+        status="complete",
+        current=len(feed_list),
+        total=len(feed_list),
+        finished_at=time.time(),
+        items_cached=len(items),
+        message="refreshed",
+        last_error="",
+        last_refreshed=_cache_last_refreshed(),
+    )
+
+
+def _start_refresh_job(feeds: Iterable[str]) -> dict:
+    feed_list = list(feeds)
+    with _refresh_lock:
+        if (_refresh_state.get("status") or "").lower() == "running":
+            state = dict(_refresh_state)
+            state["already_running"] = True
+            return state
+        _refresh_state.update(
+            {
+                "status": "running",
+                "current": 0,
+                "total": len(feed_list),
+                "message": "refreshing",
+                "last_error": "",
+                "last_url": "",
+                "items_cached": 0,
+                "started_at": time.time(),
+                "finished_at": None,
+                "last_refreshed": _cache_last_refreshed(),
+            }
+        )
+    if not feed_list:
+        return _set_refresh_state(
+            status="complete",
+            current=0,
+            total=0,
+            items_cached=0,
+            message="no feeds",
+            last_error="",
+            finished_at=time.time(),
+        )
+    thread = Thread(target=_run_refresh_job, args=(feed_list,), daemon=True)
+    thread.start()
+    return _refresh_state_snapshot()
 
 
 def _viewed_ids(events: Iterable[dict]) -> Set[str]:
@@ -1161,10 +1269,29 @@ def api_export_opml():
 def api_refresh_feeds():
     events = _load_events(LOG_PATH)
     feeds = _feeds_from_events(events)
-    items = _refresh_cache(feeds)
+    refresh_state = _start_refresh_job(feeds)
     state = _state_payload(events)
-    state.update({"items_cached": len(items), "message": "refreshed"})
-    return jsonify(state)
+    status = (refresh_state.get("status") or "").lower()
+    already_running = refresh_state.get("already_running")
+    message = (
+        "refresh already running"
+        if already_running
+        else refresh_state.get("message")
+        or ("refreshing" if status == "running" else "refreshed")
+    )
+    state.update({"refresh": refresh_state, "message": message})
+    code = 202 if status == "running" else 200
+    return jsonify(state), code
+
+
+@app.route("/api/feeds/refresh/status", methods=["GET"])
+def api_refresh_status():
+    refresh_state = _refresh_state_snapshot()
+    payload = {"refresh": refresh_state}
+    status = (refresh_state.get("status") or "").lower()
+    if status in {"complete", "idle"}:
+        payload.update(_state_payload())
+    return jsonify(payload)
 
 
 @app.route("/api/feeds/tags", methods=["POST", "DELETE"])

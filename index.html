@@ -81,6 +81,30 @@
     }
     a:hover { text-decoration: underline; }
     .hidden { display: none; }
+    #refresh-progress-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #refresh-progress {
+      width: 100%;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    #refresh-progress-bar {
+      width: 0;
+      height: 100%;
+      background: linear-gradient(135deg, var(--accent), #38bdf8);
+      transition: width 120ms ease;
+    }
+    #refresh-progress-label {
+      font-size: 12px;
+      color: #cbd5e1;
+      min-width: 54px;
+      text-align: right;
+    }
     .list {
       list-style: none;
       padding: 0;
@@ -601,9 +625,17 @@
         Items to show (0 = all):
         <input id="item-limit" type="number" min="0" value="50" style="width:90px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(15,23,42,0.8);color:var(--fg);" />
       </label>
-      <div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px;">
-        <button type="button" id="refresh-feeds">Refresh feeds</button>
-        <span id="last-refreshed" style="font-size:13px;color:#cbd5e1;">Last refreshed: —</span>
+      <div style="display:flex;flex-direction:column;gap:8px;margin:6px 0 12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button type="button" id="refresh-feeds">Refresh feeds</button>
+          <span id="last-refreshed" style="font-size:13px;color:#cbd5e1;">Last refreshed: —</span>
+        </div>
+        <div id="refresh-progress-row" class="hidden">
+          <div id="refresh-progress">
+            <div id="refresh-progress-bar"></div>
+          </div>
+          <span id="refresh-progress-label">0/0</span>
+        </div>
       </div>
       <div class="items-header">
         <h2>Items</h2>
@@ -642,6 +674,10 @@
     const importOpmlBtn = document.getElementById("import-opml");
     const exportOpmlBtn = document.getElementById("export-opml");
     const refreshBtn = document.getElementById("refresh-feeds");
+    const refreshProgressRow = document.getElementById("refresh-progress-row");
+    const refreshProgress = document.getElementById("refresh-progress");
+    const refreshProgressBar = document.getElementById("refresh-progress-bar");
+    const refreshProgressLabel = document.getElementById("refresh-progress-label");
     const itemLimitInput = document.getElementById("item-limit");
     const viewToggleBtn = document.getElementById("view-toggle");
     const folderFilterSelect = document.getElementById("folder-filter");
@@ -686,6 +722,9 @@
     let feedTitles = {};
     let itemCache = {};
     let lastRefreshAt = null;
+    let refreshProgressTimer = null;
+    let refreshProgressHideTimer = null;
+    let refreshProgressTotal = 0;
     let pendingFolderFromHash = (initialParams.get("folder") || "").trim();
     let pendingAddFolderFromHash = (initialParams.get("add_folder") || "").trim();
     let appliedFolderFromHash = false;
@@ -1272,6 +1311,135 @@
       statusBox.style.color = isError ? "#fca5a5" : "#a5f3fc";
     };
 
+    const setRefreshProgressLabel = (current, total) => {
+      if (!refreshProgressLabel) return;
+      const cur = Number.isFinite(current) ? current : 0;
+      const tot = Number.isFinite(total) ? total : "?";
+      refreshProgressLabel.textContent = `${cur}/${tot}`;
+    };
+    const isRefreshRunning = (refresh) =>
+      refresh && typeof refresh.status === "string" && refresh.status.toLowerCase() === "running";
+
+    const stopRefreshProgressPolling = () => {
+      clearInterval(refreshProgressTimer);
+      refreshProgressTimer = null;
+    };
+
+    const startRefreshProgress = (total) => {
+      if (!refreshProgressRow || !refreshProgress || !refreshProgressBar) return;
+      refreshProgressRow.classList.remove("hidden");
+      refreshProgress.classList.remove("hidden");
+      refreshProgressTotal = Number.isFinite(total)
+        ? total
+        : (Array.isArray(feedListCache) ? feedListCache.length : 0);
+      setRefreshProgressLabel(0, refreshProgressTotal);
+      refreshProgressBar.style.width = refreshProgressTotal ? "0%" : "8%";
+      stopRefreshProgressPolling();
+      clearTimeout(refreshProgressHideTimer);
+    };
+
+    const updateRefreshProgress = (current, total) => {
+      if (!refreshProgressRow || !refreshProgress || !refreshProgressBar) return;
+      const hasTotal = Number.isFinite(total);
+      const tot = hasTotal ? total : refreshProgressTotal || 0;
+      const cur = Math.max(0, Math.min(Number.isFinite(current) ? current : 0, tot || Infinity));
+      if (hasTotal) refreshProgressTotal = tot;
+      refreshProgressRow.classList.remove("hidden");
+      refreshProgress.classList.remove("hidden");
+      const pct = tot > 0 ? Math.min(100, Math.round((cur / tot) * 100)) : (cur ? 100 : 0);
+      refreshProgressBar.style.width = `${pct}%`;
+      const labelTotal = hasTotal ? tot : refreshProgressTotal || "?";
+      setRefreshProgressLabel(cur, labelTotal);
+    };
+
+    const finishRefreshProgress = (total) => {
+      if (!refreshProgressRow || !refreshProgress || !refreshProgressBar) return;
+      stopRefreshProgressPolling();
+      const tot = Number.isFinite(total)
+        ? total
+        : refreshProgressTotal || (Array.isArray(feedListCache) ? feedListCache.length : 0);
+      const cur = Number.isFinite(total) ? total : tot;
+      setRefreshProgressLabel(cur || 0, tot || cur || refreshProgressTotal);
+      refreshProgressBar.style.width = "100%";
+      refreshProgressHideTimer = setTimeout(() => {
+        refreshProgressRow.classList.add("hidden");
+        refreshProgress.classList.add("hidden");
+        refreshProgressBar.style.width = "0%";
+      }, 350);
+    };
+
+    const resetRefreshProgress = () => {
+      stopRefreshProgressPolling();
+      clearTimeout(refreshProgressHideTimer);
+      if (!refreshProgressRow || !refreshProgress || !refreshProgressBar) return;
+      refreshProgressRow.classList.add("hidden");
+      refreshProgress.classList.add("hidden");
+      refreshProgressBar.style.width = "0%";
+      setRefreshProgressLabel(0, refreshProgressTotal || 0);
+    };
+
+    const getRefreshState = (data) => {
+      if (!data || typeof data !== "object") return null;
+      if (data.refresh && typeof data.refresh === "object") return data.refresh;
+      if (data.refresh_state && typeof data.refresh_state === "object") return data.refresh_state;
+      return null;
+    };
+
+    const applyRefreshState = (data) => {
+      const refresh = getRefreshState(data);
+      if (!refresh) return null;
+      const status = (refresh.status || "").toLowerCase();
+      const hasTotal = Number.isFinite(refresh.total);
+      const total = hasTotal ? refresh.total : refreshProgressTotal || 0;
+      const current = Number.isFinite(refresh.current) ? refresh.current : 0;
+      if (status === "running") {
+        updateRefreshProgress(current, total);
+      } else if (status === "error") {
+        resetRefreshProgress();
+      } else {
+        resetRefreshProgress();
+      }
+      if (refresh.last_refreshed) updateLastRefreshed(refresh.last_refreshed);
+      return refresh;
+    };
+
+    const fetchRefreshStatus = () =>
+      fetch("/api/feeds/refresh/status")
+        .then((r) => r.json())
+        .catch(() => null);
+
+    const waitForRefreshCompletion = () =>
+      new Promise((resolve, reject) => {
+        let failures = 0;
+        const poll = () => {
+          fetchRefreshStatus()
+            .then((data) => {
+              failures = 0;
+              const refresh = applyRefreshState(data);
+              const status = (refresh && refresh.status ? refresh.status.toLowerCase() : "");
+              if (status === "complete" || status === "idle") {
+                stopRefreshProgressPolling();
+                resolve(data || {});
+                return;
+              }
+              if (status === "error") {
+                stopRefreshProgressPolling();
+                reject(new Error(refresh?.last_error || "Failed to refresh"));
+              }
+            })
+            .catch(() => {
+              failures += 1;
+              if (failures >= 5) {
+                stopRefreshProgressPolling();
+                reject(new Error("Failed to read refresh status"));
+              }
+            });
+        };
+        poll();
+        stopRefreshProgressPolling();
+        refreshProgressTimer = setInterval(poll, 900);
+      });
+
     const fetchFeeds = () =>
       fetch("/api/feeds")
         .then((r) => r.json())
@@ -1429,11 +1597,34 @@
         .then(({ status, data }) => {
           if (status >= 400) throw new Error(data.error || "Failed");
           applyFeeds(data);
-          setStatus(data.message || "Refreshed");
+          const refresh = applyRefreshState(data);
+          const total = refresh && Number.isFinite(refresh.total) ? refresh.total : undefined;
+          const running = isRefreshRunning(refresh);
+          if (running) {
+            startRefreshProgress(total);
+            updateRefreshProgress(refresh.current || 0, total);
+            setStatus(data.message || "Refreshing feeds...");
+            return waitForRefreshCompletion();
+          }
+          resetRefreshProgress();
+          setStatus(data.message || (refresh && refresh.message) || "Refreshed");
+          return data;
+        })
+        .then((data) => {
+          const refresh = getRefreshState(data);
+          const total = refresh && Number.isFinite(refresh.total) ? refresh.total : undefined;
+          const running = isRefreshRunning(refresh);
+          if (running) finishRefreshProgress(total);
+          else resetRefreshProgress();
+          const message = (refresh && refresh.message) || (data && data.message) || "Refreshed";
+          setStatus(message);
           currentPage = 1;
           return fetchItems();
         })
-        .catch((err) => setStatus(err.message || "Failed to refresh", true))
+        .catch((err) => {
+          setStatus(err.message || "Failed to refresh", true);
+          resetRefreshProgress();
+        })
         .finally(() => {
           refreshBtn.disabled = false;
         });
@@ -1603,6 +1794,30 @@
         fetchItems();
       })
     );
+
+    fetchRefreshStatus()
+      .then((data) => {
+        const refresh = applyRefreshState(data);
+        const total = refresh && Number.isFinite(refresh.total) ? refresh.total : undefined;
+        if (!isRefreshRunning(refresh)) {
+          resetRefreshProgress();
+          return;
+        }
+        startRefreshProgress(total);
+        updateRefreshProgress(refresh.current || 0, total);
+        waitForRefreshCompletion()
+          .then((latest) => {
+            const finalRefresh = getRefreshState(latest);
+            const finalTotal = finalRefresh && Number.isFinite(finalRefresh.total) ? finalRefresh.total : total;
+            finishRefreshProgress(finalTotal);
+            const message = (finalRefresh && finalRefresh.message) || (latest && latest.message);
+            if (message) setStatus(message);
+            currentPage = 1;
+            fetchItems();
+          })
+          .catch(() => resetRefreshProgress());
+      })
+      .catch(() => resetRefreshProgress());
 
     const applyHashState = () => {
       if (suppressHashChange) return;
