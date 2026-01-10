@@ -117,6 +117,39 @@ async def scrape_list(
             reposts = _parse_count(reposts_el.get("aria-label")) if reposts_el else None
             likes = _parse_count(likes_el.get("aria-label")) if likes_el else None
 
+            quote = None
+            quote_container = await article.query_selector('div[data-testid="tweet"]')
+            if quote_container:
+                q_status_el = await quote_container.query_selector('a[href*="/status/"]')
+                q_url = q_status_el.get("href") if q_status_el else None
+                if q_url and q_url.startswith("/"):
+                    q_url = "https://x.com" + q_url
+
+                q_id = None
+                q_user = None
+                if q_url:
+                    parsed_q = urlparse(q_url)
+                    q_parts = [p for p in parsed_q.path.split("/") if p]
+                    if len(q_parts) >= 2 and q_parts[-1].isdigit():
+                        q_id = q_parts[-1]
+                        if len(q_parts) >= 3 and q_parts[-2] == "status":
+                            q_user = q_parts[-3]
+                        else:
+                            q_user = q_parts[-2]
+
+                q_text_parts: List[str] = []
+                for q_text_node in await quote_container.query_selector_all('[data-testid="tweetText"]'):
+                    q_text_parts.append(q_text_node.text_all.strip())
+                q_text = "\n".join(p for p in q_text_parts if p).strip()
+
+                if q_text or q_url:
+                    quote = {
+                        "id": q_id,
+                        "url": q_url,
+                        "user": q_user,
+                        "text": q_text,
+                    }
+
             dedupe_key = tweet_id or text
             if dedupe_key in seen:
                 continue
@@ -133,6 +166,7 @@ async def scrape_list(
                     "reposts": reposts,
                     "likes": likes,
                     "avatar_url": avatar_url,
+                    "quote": quote,
                 }
             )
 
