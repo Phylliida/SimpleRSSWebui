@@ -746,8 +746,13 @@
     }
     const esc = (text = "") =>
       text.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-    const safeUrl = (url = "") =>
-      (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://"))) ? url : "";
+    const safeUrl = (url = "") => {
+      if (typeof url !== "string") return "";
+      const trimmed = url.trim();
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+      if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+      return "";
+    };
     const feedLabel = (url = "") => {
       const label = feedTitles[url];
       return typeof label === "string" && label.trim() ? label : url;
@@ -1013,7 +1018,13 @@
         video: ["src", "poster", "controls", "autoplay", "loop", "muted", "playsinline"],
         source: ["src", "type"],
       };
-      const safeUrl = (url = "") => (url.startsWith("http://") || url.startsWith("https://")) ? url : "";
+      const safeUrl = (url = "") => {
+        if (typeof url !== "string") return "";
+        const trimmed = url.trim();
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+        if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+        return "";
+      };
       const isWhitespaceNode = (node) => node && node.nodeType === Node.TEXT_NODE && (node.textContent || "").trim() === "";
       const isDashTextNode = (node) => {
         if (!node || node.nodeType !== Node.TEXT_NODE) return false;
@@ -1892,9 +1903,10 @@
       const img = ev.target.closest(".summary img");
       if (img) {
         const src = img.getAttribute("src") || "";
-        if (src.startsWith("http://") || src.startsWith("https://")) {
+        const safeSrc = safeUrl(src);
+        if (safeSrc) {
           ev.preventDefault();
-          openLightbox(src, img.getAttribute("alt") || "");
+          openLightbox(safeSrc, img.getAttribute("alt") || "");
         }
         return;
       }

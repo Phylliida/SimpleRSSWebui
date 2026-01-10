@@ -134,7 +134,7 @@ def _download_with_retry(
 
 
 async def scrape_list(
-    scrolls: int = 20, pause: float = 5, wait_for_login: bool = True
+    scrolls: int = 2000, pause: float = 5, wait_for_login: bool = True
 ) -> List[str]:
     """
     Open the list in a real browser window, optionally pause for manual login,
@@ -153,17 +153,27 @@ async def scrape_list(
             print("Log in or dismiss dialogs in the opened window, then press Enter here…")
             await _wait_for_enter("")
 
+        interrupted = False
         for i in range(scrolls):
-            # Scroll by roughly one viewport each iteration to avoid racing far down the feed
-            await tab.evaluate("window.scrollBy(0, window.innerHeight * 0.9);")
-            await tab.sleep(pause)
-            html = await tab.get_content()
-            html_chunks.append(html)
-            print(f"Captured scroll {i + 1}/{scrolls}, html length {len(html)}")
-            with LOG_PATH.open("a", encoding="utf-8") as f:
-                f.write(f"\n\n<!-- scroll {i + 1} -->\n")
-                f.write(html)
-                f.write("\n")
+            try:
+                # Scroll by roughly one viewport each iteration to avoid racing far down the feed
+                await tab.evaluate("window.scrollBy(0, window.innerHeight * 0.9);")
+                await tab.sleep(pause)
+                html = await tab.get_content()
+                html_chunks.append(html)
+                print(f"Captured scroll {i + 1}/{scrolls}, html length {len(html)}")
+                with LOG_PATH.open("a", encoding="utf-8") as f:
+                    f.write(f"\n\n<!-- scroll {i + 1} -->\n")
+                    f.write(html)
+                    f.write("\n")
+            except KeyboardInterrupt:
+                interrupted = True
+                print(f"Interrupted after {i + 1} scroll(s); parsing what was captured so far")
+                break
+            except asyncio.CancelledError:
+                interrupted = True
+                print(f"Cancelled after {i + 1} scroll(s); parsing what was captured so far")
+                break
     finally:
         await browser.stop()
         print("Browser closed")
@@ -237,8 +247,16 @@ async def scrape_list(
                 if name_guess and name_guess.lower() != "you":
                     retweeted_by = name_guess
 
+        quote_block = None
+        for candidate in article.select('div[role="link"][tabindex="0"]'):
+            if candidate.select_one('[data-testid="tweetText"]'):
+                quote_block = candidate
+                break
+
         text_parts: List[str] = []
         for text_node in article.select('[data-testid="tweetText"]'):
+            if quote_block and quote_block in text_node.parents:
+                continue
             piece = text_node.get_text(" ", strip=True)
             if piece:
                 text_parts.append(piece)
@@ -255,6 +273,8 @@ async def scrape_list(
 
         media_urls: List[str] = []
         for img in article.select('img[src*="pbs.twimg.com"]'):
+            if quote_block and quote_block in img.parents:
+                continue
             best_src = _best_pbs_url(img)
             if not best_src:
                 continue
@@ -272,9 +292,8 @@ async def scrape_list(
         print(f"Article {idx}: counts replies={replies} reposts={reposts} likes={likes} retweeted_by={retweeted_by}")
 
         quote = None
-        quote_container = article.select_one('div[data-testid="tweet"]')
-        if quote_container:
-            q_status_el = quote_container.select_one('a[href*="/status/"]')
+        if quote_block:
+            q_status_el = quote_block.select_one('a[href*="/status/"]')
             q_url = q_status_el.get("href") if q_status_el else None
             if q_url and q_url.startswith("/"):
                 q_url = "https://x.com" + q_url
@@ -284,21 +303,45 @@ async def scrape_list(
             if q_url:
                 parsed_q = urlparse(q_url)
                 q_parts = [p for p in parsed_q.path.split("/") if p]
-                if len(q_parts) >= 2 and q_parts[-1].isdigit():
-                    q_id = q_parts[-1]
-                    if len(q_parts) >= 3 and q_parts[-2] == "status":
-                        q_user = q_parts[-3]
-                    else:
-                        q_user = q_parts[-2]
+                if len(q_parts) >= 2:
+                    id_index = next((i for i, part in enumerate(q_parts) if part.isdigit()), None)
+                    if id_index is not None:
+                        q_id = q_parts[id_index]
+                        base_parts = q_parts[: id_index + 1]
+                        q_url = parsed_q._replace(
+                            path="/" + "/".join(base_parts),
+                            params="",
+                            query="",
+                            fragment="",
+                        ).geturl()
+                        if id_index >= 2 and q_parts[id_index - 1] == "status":
+                            q_user = q_parts[id_index - 2]
+                        elif id_index >= 1:
+                            q_user = q_parts[id_index - 1]
+
+            if not q_user:
+                name_link = quote_block.select_one('div[data-testid="User-Name"] a[href^="/"]')
+                href = name_link.get("href") if name_link else None
+                if href:
+                    parsed = urlparse(href)
+                    segments = [p for p in parsed.path.split("/") if p]
+                    if segments:
+                        q_user = segments[0]
+            if not q_user:
+                name_el = quote_block.select_one('[data-testid="User-Name"]')
+                if name_el:
+                    handle_match = re.search(r"@([A-Za-z0-9_]+)", name_el.get_text(" ", strip=True))
+                    if handle_match:
+                        q_user = handle_match.group(1)
 
             q_text_parts: List[str] = []
-            for q_text_node in quote_container.select('[data-testid="tweetText"]'):
+            for q_text_node in quote_block.select('[data-testid="tweetText"]'):
                 piece = q_text_node.get_text(" ", strip=True)
                 if piece:
                     q_text_parts.append(piece)
             q_text = "\n".join(q_text_parts).strip()
 
-            if q_text or q_url:
+            if q_text or q_url or q_user:
                 quote = {
                     "id": q_id,
                     "url": q_url,

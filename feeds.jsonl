@@ -354,3 +354,4 @@
 {"action": "remove_feed", "url": "http://nitter.phylliidaassets.org/LemmySmackett/rss"}
 {"action": "remove_feed", "url": "http://nitter.phylliidaassets.org/adrusi/rss"}
 {"action": "remove_feed", "url": "http://nitter.phylliidaassets.org/repligate/ZDi____"}
+{"action": "add_feed", "url": "http://twitter", "folder": "Favs/Twitter"}

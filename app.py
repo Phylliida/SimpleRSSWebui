@@ -25,7 +25,7 @@ import re
 import feedparser
 import listparser
 import requests
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, send_from_directory
 
 app = Flask(__name__)
 
@@ -42,6 +42,10 @@ CACHE_DIR = Path(
 )
 CACHE_ITEMS_PATH = CACHE_DIR / "items.json"
 DEFAULT_FOLDER = "Default"
+TWITTER_FEED_URL = "http://twitter"
+TWITTER_SCROLLS_PATH = Path(__file__).with_name("twitter_scrolls.jsonl")
+TWITTER_MEDIA_DIR = Path(__file__).with_name("twitter_media")
+TWITTER_AVATAR_DIR = Path(__file__).with_name("twitter_profile_pics")
 BSKY_API_BASE = "https://public.api.bsky.app/xrpc"
 _BSKY_RATE_WINDOW = 1.0
 _BSKY_RATE_MAX = 35
@@ -543,6 +547,136 @@ def _entry_author(entry: dict) -> str:
     return str(getattr(details, "name", "") or getattr(details, "email", "") or "").strip()
 
 
+def _twitter_count(val: object) -> int | None:
+    try:
+        parsed = int(val)
+        return parsed if parsed >= 0 else None
+    except Exception:
+        return None
+
+
+def _twitter_timestamp(raw: object) -> float:
+    if raw is None:
+        return 0.0
+    if isinstance(raw, (int, float)):
+        return float(raw) if float(raw) >= 0 else 0.0
+    text = str(raw or "").strip()
+    if not text:
+        return 0.0
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return dt.timestamp()
+    except Exception:
+        try:
+            parsed = float(text)
+            return parsed if parsed >= 0 else 0.0
+        except Exception:
+            return 0.0
+
+
+def _twitter_summary(entry: dict) -> str:
+    parts: list[str] = []
+    text = str(entry.get("text") or "").strip()
+    if text:
+        parts.append(f"<div>{escape(text).replace('\\n', '<br/>')}</div>")
+    media = entry.get("media_urls") or []
+    for url in media:
+        url_str = str(url or "").strip()
+        if url_str:
+            parts.append(
+                f'<div><img src="{escape(url_str)}" alt="" style="max-width:100%;height:auto;"/></div>'
+            )
+    quote = entry.get("quote") or {}
+    if isinstance(quote, dict):
+        quote_text = str(quote.get("text") or "").strip()
+        quote_user = str(quote.get("user") or "").strip()
+        quote_url = str(quote.get("url") or "").strip()
+        if quote_text or quote_user or quote_url:
+            inner: list[str] = []
+            labels: list[str] = []
+            if quote_user:
+                labels.append(escape(f"@{quote_user.lstrip('@')}"))
+            if quote_url:
+                labels.append(
+                    f'<a href="{escape(quote_url)}" target="_blank" rel="noopener noreferrer">{escape(quote_url)}</a>'
+                )
+            if labels:
+                inner.append(" ".join(labels))
+            if quote_text:
+                inner.append(escape(quote_text).replace("\\n", "<br/>"))
+            block = "<br/>".join(inner)
+            parts.append(f"<blockquote>{block}</blockquote>")
+    return "\n".join(parts)
+
+
+def _item_from_twitter_entry(entry: dict) -> dict | None:
+    if not isinstance(entry, dict):
+        return None
+    link = str(entry.get("url") or "").strip()
+    tweet_id = str(entry.get("id") or "").strip() or link
+    user = str(entry.get("user") or "").strip().lstrip("@")
+    created_at = str(entry.get("created_at") or "").strip()
+    ts = _twitter_timestamp(created_at) or time.time()
+    summary = _twitter_summary(entry)
+    avatar = str(entry.get("avatar_url") or "").strip()
+    retweeted_by = str(entry.get("retweeted_by") or "").strip().lstrip("@")
+    is_retweet = bool(entry.get("is_retweet") and retweeted_by)
+    item = {
+        "feed": TWITTER_FEED_URL,
+        "feed_title": "Twitter",
+        "id": f"{TWITTER_FEED_URL}|{tweet_id or ts}",
+        "title": user or "Tweet",
+        "link": link,
+        "published": created_at,
+        "summary": summary,
+        "thumbnail": "",
+        "_ts": ts,
+        "_viewed": False,
+    }
+    if avatar:
+        item["feed_image"] = avatar
+
+    def _set_count(field: str, target: str) -> None:
+        val = _twitter_count(entry.get(field))
+        if val is not None:
+            item[target] = val
+
+    _set_count("likes", "like_count")
+    _set_count("reposts", "retweet_count")
+    _set_count("replies", "reply_count")
+    if is_retweet:
+        item["retweet_by"] = f"@{retweeted_by}" if retweeted_by else retweeted_by
+        if user:
+            item["retweet_original_author"] = f"@{user}"
+        if avatar:
+            item["retweet_original_avatar"] = avatar
+    quote_user = str((entry.get("quote") or {}).get("user") or "").strip()
+    if quote_user:
+        item["quote_author"] = f"@{quote_user.lstrip('@')}"
+    return item
+
+
+def _twitter_items_from_log(path: Path = TWITTER_SCROLLS_PATH) -> List[dict]:
+    if not path.exists():
+        return []
+    items: List[dict] = []
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                except Exception:
+                    continue
+                item = _item_from_twitter_entry(data)
+                if item:
+                    items.append(item)
+    except Exception:
+        return []
+    return items
+
+
 def _parse_nitter_retweet(feed_url: str, entry: dict, feed_image: str = "") -> dict | None:
     base_url = _nitter_base_url(feed_url)
     if not base_url:
@@ -934,6 +1068,15 @@ def _gather_feed_items(
     for idx, url in enumerate(feed_list, 1):
         try:
             print(f"Fetching feed {idx}/{total}: {url}", flush=True)
+            if url == TWITTER_FEED_URL:
+                tweets = _twitter_items_from_log()
+                if progress_cb:
+                    try:
+                        progress_cb(idx, total, url)
+                    except Exception:
+                        pass
+                items.extend(tweets)
+                continue
             if _is_nitter_feed(url):
                 _nitter_feed_rate_limit()
             else:
@@ -1401,6 +1544,16 @@ def api_feed_folder():
     state = _state_payload()
     state["message"] = "moved"
     return jsonify(state)
+
+
+@app.route("/twitter_media/<path:filename>", methods=["GET"])
+def twitter_media(filename: str):
+    return send_from_directory(TWITTER_MEDIA_DIR, filename)
+
+
+@app.route("/twitter_profile_pics/<path:filename>", methods=["GET"])
+def twitter_profile_pic(filename: str):
+    return send_from_directory(TWITTER_AVATAR_DIR, filename)
 
 
 @app.route("/", methods=["GET"])
