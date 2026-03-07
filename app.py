@@ -1276,7 +1276,7 @@ def _collect_items(
         items.sort(key=lambda i: (_pos_int(i.get("youtube_views")), i.get("_ts", 0)), reverse=True)
     elif key == "likes":
         items.sort(key=lambda i: (_pos_int(i.get("like_count")), i.get("_ts", 0)), reverse=True)
-    elif key == "best":
+    elif key in {"best", "best_recent"}:
         cap = per_source_limit if per_source_limit is not None else 0
         def _group_key(item: dict) -> str:
             feed = str(item.get("feed") or "")
@@ -1293,7 +1293,10 @@ def _collect_items(
         for feed_items in grouped.values():
             feed_items.sort(key=lambda i: (_score(i), i.get("_ts", 0)), reverse=True)
             ranked.extend(feed_items if cap <= 0 else feed_items[:cap])
-        ranked.sort(key=lambda i: (_score(i), i.get("_ts", 0)), reverse=True)
+        if key == "best_recent":
+            ranked.sort(key=lambda i: i.get("_ts", 0), reverse=True)
+        else:
+            ranked.sort(key=lambda i: (_score(i), i.get("_ts", 0)), reverse=True)
         items = ranked
     else:
         items.sort(key=lambda i: i.get("_ts", 0), reverse=True)
@@ -1611,7 +1614,7 @@ def api_list_items():
         str(request.args.get("favorites_only", "")).lower() in {"1", "true", "yes", "on"}
     )
     sort_by = str(request.args.get("sort", "recent") or "").lower()
-    if sort_by not in {"recent", "views", "likes", "best"}:
+    if sort_by not in {"recent", "views", "likes", "best", "best_recent"}:
         sort_by = "recent"
     try:
         per_source_limit = int(request.args.get("per_source", "0"))

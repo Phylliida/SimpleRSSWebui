@@ -708,8 +708,8 @@
     let currentPage = parsePositiveInt(initialParams.get("page"), 1);
     const rangeOptions = ["all", "today", "week", "month"];
     const rangeLabels = { all: "All time", today: "Today", week: "Last week", month: "Last month" };
-    const sortOptions = ["recent", "views", "likes", "best"];
-    const sortLabels = { recent: "Most recent", views: "Most views", likes: "Most likes", best: "Best per source" };
+    const sortOptions = ["recent", "views", "likes", "best", "best_recent"];
+    const sortLabels = { recent: "Most recent", views: "Most views", likes: "Most likes", best: "Best per source", best_recent: "Best per source (recent)" };
     const viewOptions = ["all", "viewed", "unviewed"];
     const viewLabels = { all: "All items", unviewed: "Unviewed only", viewed: "Viewed only" };
     const initialRange = (initialParams.get("range") || "all").toLowerCase();
@@ -867,7 +867,7 @@
       if (addFolder) params.set("add_folder", addFolder);
       if (view === "all" || view === "viewed") params.set("include_viewed", "1");
       if (Number.isFinite(limit) && limit > 0) params.set("limit", limit);
-      if (currentSort === "best" && perSourceInput) {
+      if ((currentSort === "best" || currentSort === "best_recent") && perSourceInput) {
         const perSourceVal = parseInt(perSourceInput.value, 10);
         if (Number.isFinite(perSourceVal) && perSourceVal >= 0) params.set("per_source", perSourceVal);
       }
@@ -1484,7 +1484,7 @@
       params.push(`view=${encodeURIComponent(viewParam)}`);
       if (viewParam === "all" || viewParam === "viewed") params.push("include_viewed=1");
       params.push(`sort=${encodeURIComponent(currentSort || "recent")}`);
-      if (currentSort === "best" && perSourceInput) {
+      if ((currentSort === "best" || currentSort === "best_recent") && perSourceInput) {
         const perSourceVal = parseInt(perSourceInput.value, 10);
         if (Number.isFinite(perSourceVal) && perSourceVal >= 0) {
           params.push(`per_source=${perSourceVal}`);
