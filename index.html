@@ -306,6 +306,68 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
     }
+    .yt-embed-wrap {
+      width: 100%;
+      max-width: 640px;
+      margin: 8px 0;
+    }
+    .yt-thumb {
+      position: relative;
+      cursor: pointer;
+      display: inline-block;
+    }
+    .yt-thumb .thumb {
+      width: 200px;
+      border-radius: 8px;
+    }
+    .yt-play-btn {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 48px;
+      height: 48px;
+      background: rgba(0, 0, 0, 0.7);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .yt-play-btn::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 55%;
+      transform: translate(-50%, -50%);
+      border-style: solid;
+      border-width: 10px 0 10px 18px;
+      border-color: transparent transparent transparent #fff;
+    }
+    .yt-iframe {
+      width: 100%;
+      max-width: 640px;
+      aspect-ratio: 16 / 9;
+      border-radius: 8px;
+      border: none;
+    }
+    .yt-transcript {
+      margin: 8px 0;
+      font-size: 0.85em;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    .yt-transcript summary {
+      cursor: pointer;
+      color: rgba(255, 255, 255, 0.5);
+      user-select: none;
+    }
+    .yt-transcript summary:hover {
+      color: rgba(255, 255, 255, 0.8);
+    }
+    .yt-transcript-body {
+      margin-top: 6px;
+      max-height: 300px;
+      overflow-y: auto;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
     .summary img {
       max-width: 100%;
       max-height: 320px;
@@ -1262,8 +1324,14 @@
           ? `<div class="item-title with-avatar">${avatar}${linkWithIcon}</div>`
           : `<div class="item-title">${linkWithIcon}</div>`;
         const thumbUrl = safeUrl(item.thumbnail || "");
+        const ytVideoId = isYoutube && typeof item.youtube_video_id === "string" ? item.youtube_video_id : "";
         const thumbLinkOpen = item.link ? ` href="${safeLink}" target="_blank" rel="noopener noreferrer"` : "";
-        const thumb = thumbUrl ? `<div class="thumb-wrap"><a${thumbLinkOpen}><img class="thumb" src="${esc(thumbUrl)}" alt="" loading="lazy" /></a></div>` : "";
+        const thumb = ytVideoId
+          ? ""
+          : (thumbUrl ? `<div class="thumb-wrap"><a${thumbLinkOpen}><img class="thumb" src="${esc(thumbUrl)}" alt="" loading="lazy" /></a></div>` : "");
+        const ytEmbed = ytVideoId
+          ? `<div class="yt-embed-wrap"><div class="yt-thumb" data-vid="${esc(ytVideoId)}">${thumbUrl ? `<img class="thumb" src="${esc(thumbUrl)}" alt="" loading="lazy" />` : ""}<div class="yt-play-btn"></div></div></div>`
+          : "";
         const showFeedName = feedName && feedName.trim().toLowerCase() !== displayTitleText.trim().toLowerCase();
         const blueskyHandleRaw = typeof item.bluesky_author_handle === "string" ? item.bluesky_author_handle.trim() : "";
         const blueskyHandle = blueskyHandleRaw ? (blueskyHandleRaw.startsWith("@") ? blueskyHandleRaw : `@${blueskyHandleRaw}`) : "";
@@ -1296,6 +1364,10 @@
           summaryParts.push(`<div class="summary"${attrs}>${sanitizeSummary(summaryForRender)}</div>`);
         }
         if (youtubeViewsText) summaryParts.push(`<div class="summary">${esc(youtubeViewsText)}</div>`);
+        const ytTranscript = isYoutube && typeof item.youtube_transcript === "string" ? item.youtube_transcript : "";
+        if (ytTranscript) {
+          summaryParts.push(`<details class="yt-transcript"><summary>Transcript</summary><div class="yt-transcript-body">${esc(ytTranscript)}</div></details>`);
+        }
         if (!isBlueskyItem && !hasCountsInSummary && (repliesCount !== null || retweetCount !== null || likesCount !== null)) {
           const countBits = [];
           if (repliesCount !== null) countBits.push(`Replies: ${repliesCount}`);
@@ -1325,6 +1397,7 @@
             </div>
             ${actions}
           </div>
+          ${ytEmbed}
           ${summary}
         </li>`;
       }).join("");
@@ -1932,6 +2005,18 @@
     }
 
     itemsList.addEventListener("click", (ev) => {
+      const ytThumb = ev.target.closest(".yt-thumb");
+      if (ytThumb) {
+        ev.preventDefault();
+        const vid = ytThumb.dataset.vid;
+        if (vid) {
+          const wrap = ytThumb.closest(".yt-embed-wrap");
+          if (wrap) {
+            wrap.innerHTML = `<iframe class="yt-iframe" src="https://www.youtube.com/embed/${encodeURIComponent(vid)}?autoplay=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+          }
+        }
+        return;
+      }
       const img = ev.target.closest(".summary img");
       if (img) {
         const src = img.getAttribute("src") || "";

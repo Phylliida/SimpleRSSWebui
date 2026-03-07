@@ -27,6 +27,14 @@ import listparser
 import requests
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+    _ytt_api = YouTubeTranscriptApi()
+    _HAS_YTT = True
+except ImportError:
+    _ytt_api = None
+    _HAS_YTT = False
+
 app = Flask(__name__)
 
 LOG_PATH = Path(
@@ -56,6 +64,9 @@ _NITTER_RATE_WINDOW = 6.0
 _NITTER_RATE_MAX = 1
 _feed_rate_calls: deque[float] = deque(maxlen=_FEED_RATE_MAX)
 _nitter_feed_rate_calls: deque[float] = deque(maxlen=_NITTER_RATE_MAX)
+_YT_TRANSCRIPT_RATE_WINDOW = 2.0
+_YT_TRANSCRIPT_RATE_MAX = 1
+_yt_transcript_rate_calls: deque[float] = deque(maxlen=_YT_TRANSCRIPT_RATE_MAX)
 _NITTER_RETWEET_RE = re.compile(r"^RT by\s+(@?[\w.]+):?\s*(.*)", re.IGNORECASE)
 _NITTER_QUOTE_BLOCK_RE = re.compile(r"<blockquote\b[^>]*>(.*?)</blockquote>", re.IGNORECASE | re.DOTALL)
 _NITTER_HREF_RE = re.compile(r'href="([^"]+)"', re.IGNORECASE)
@@ -578,7 +589,8 @@ def _twitter_summary(entry: dict) -> str:
     parts: list[str] = []
     text = str(entry.get("text") or "").strip()
     if text:
-        parts.append(f"<div>{escape(text).replace('\\n', '<br/>')}</div>")
+        escaped = escape(text).replace('\n', '<br/>')
+        parts.append(f"<div>{escaped}</div>")
     media = entry.get("media_urls") or []
     for url in media:
         url_str = str(url or "").strip()
@@ -923,6 +935,27 @@ def _nitter_feed_rate_limit():
     _nitter_feed_rate_calls.append(time.time())
 
 
+def _yt_transcript_rate_limit():
+    now = time.time()
+    if len(_yt_transcript_rate_calls) == _YT_TRANSCRIPT_RATE_MAX:
+        earliest = _yt_transcript_rate_calls[0]
+        elapsed = now - earliest
+        if elapsed < _YT_TRANSCRIPT_RATE_WINDOW:
+            time.sleep(_YT_TRANSCRIPT_RATE_WINDOW - elapsed)
+    _yt_transcript_rate_calls.append(time.time())
+
+
+def _fetch_youtube_transcript(video_id: str) -> str | None:
+    if not _HAS_YTT or not video_id:
+        return None
+    try:
+        _yt_transcript_rate_limit()
+        transcript = _ytt_api.fetch(video_id, languages=["en"])
+        return " ".join(snippet.text for snippet in transcript)
+    except Exception:
+        return None
+
+
 def _fetch_bluesky_post_json(link: str) -> dict | None:
     parsed = _bluesky_handle_rkey_from_link(link)
     if not parsed:
@@ -1032,6 +1065,20 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
         item["bluesky_author_handle"] = bluesky_author_handle
     if bluesky_author_display:
         item["bluesky_author_display"] = bluesky_author_display
+    if is_youtube:
+        vid = str(entry.get("yt_videoid") or entry.get("videoid") or "")
+        if "yt:video:" in vid:
+            vid = vid.split("yt:video:", 1)[1]
+        if not vid and link:
+            if "youtube.com" in link and "v=" in link:
+                vid = link.split("v=", 1)[1].split("&", 1)[0]
+            elif "youtu.be/" in link:
+                vid = link.split("youtu.be/", 1)[1].split("?", 1)[0]
+        if vid:
+            item["youtube_video_id"] = vid
+            transcript = _fetch_youtube_transcript(vid)
+            if transcript:
+                item["youtube_transcript"] = transcript
     if youtube_views is not None:
         item["youtube_views"] = youtube_views
     if like_count is not None:
