@@ -666,6 +666,43 @@
           </div>
         </div>
       </details>
+      <details class="collapsible" id="custom-script-section">
+        <summary>Custom Script Feeds <span class="spoiler-arrow">▾</span></summary>
+        <div class="collapsible-body">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <input id="custom-name" type="text" placeholder="Script feed name" style="flex:1 1 180px;" />
+              <input id="custom-title" type="text" placeholder="Display title (optional)" style="flex:1 1 180px;" />
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;flex:1 1 200px;">
+                Source folder:
+                <select id="custom-source" style="flex:1 1 200px;">
+                  <option value="">Select a source folder</option>
+                </select>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#cbd5e1;flex:1 1 200px;">
+                Destination folder:
+                <input id="custom-dest-folder" type="text" placeholder="e.g. Scripts/MyFilter" style="flex:1 1 160px;" />
+              </label>
+            </div>
+            <textarea id="custom-script" rows="8" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(15,23,42,0.8);color:var(--fg);font-family:monospace;font-size:13px;resize:vertical;">def transform(entries):
+    return entries
+
+# Example: filter by keyword
+# def transform(entries):
+#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]</textarea>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button type="button" id="custom-run">Run (preview)</button>
+              <button type="button" id="custom-save">Save</button>
+              <button type="button" id="custom-clear" style="background:rgba(148,163,184,0.15);color:#cbd5e1;">Clear</button>
+            </div>
+            <pre id="custom-stdout" style="display:none;max-height:160px;overflow:auto;padding:10px;border-radius:8px;background:rgba(15,23,42,0.85);border:1px solid rgba(125,211,252,0.15);font-size:12px;color:#a5f3fc;white-space:pre-wrap;"></pre>
+            <pre id="custom-preview" style="display:none;max-height:200px;overflow:auto;padding:10px;border-radius:8px;background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.08);font-size:12px;color:#cbd5e1;white-space:pre-wrap;"></pre>
+          </div>
+          <div id="custom-feeds-list" style="margin-top:12px;display:grid;gap:8px;"></div>
+        </div>
+      </details>
       <div id="feeds-block" class="feeds-block">
         <button id="feeds-toggle" class="spoiler-btn" aria-expanded="false">
           <span>Feed URLs <span id="feed-summary-label">(0)</span></span>
@@ -1016,9 +1053,10 @@
         const folderLabel = foldersForFeed.map(esc).join(", ");
         const safe = esc(url);
         const label = esc(feedLabel(url));
+        const scriptBadge = url.startsWith("custom://") ? ' <span style="font-size:11px;padding:1px 5px;border-radius:4px;background:rgba(125,211,252,0.18);color:#7dd3fc;font-weight:700;">[SCRIPT]</span>' : "";
         return `<li>
           <div class="feed-info">
-            <span>${label}</span>
+            <span>${label}${scriptBadge}</span>
             <div class="feed-url">${safe}</div>
             <div class="folder-label">Folders: ${folderLabel}</div>
           </div>
@@ -1075,6 +1113,8 @@
         appliedAddFolderFromHash = true;
       }
       renderFeeds(feeds);
+      syncCustomSourceSelect();
+      if (Array.isArray(data.custom_feeds)) renderCustomFeedsList(data.custom_feeds);
     };
 
     const formatTime = (value) => {
@@ -2105,6 +2145,158 @@
         btn.disabled = currentPage >= maxPage;
       });
     };
+
+    // --- Custom Script Feeds ---
+    const customNameInput = document.getElementById("custom-name");
+    const customTitleInput = document.getElementById("custom-title");
+    const customSourceSelect = document.getElementById("custom-source");
+    const customDestFolderInput = document.getElementById("custom-dest-folder");
+    const customScriptArea = document.getElementById("custom-script");
+    const customRunBtn = document.getElementById("custom-run");
+    const customSaveBtn = document.getElementById("custom-save");
+    const customClearBtn = document.getElementById("custom-clear");
+    const customPreview = document.getElementById("custom-preview");
+    const customStdout = document.getElementById("custom-stdout");
+    const customFeedsList = document.getElementById("custom-feeds-list");
+
+    const syncCustomSourceSelect = () => {
+      const current = customSourceSelect.value;
+      const folderValues = Array.from(folders).sort((a, b) => a.localeCompare(b));
+      const options = folderValues.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
+      customSourceSelect.innerHTML = `<option value="">Select a source folder</option>${options}`;
+      if (folderValues.includes(current)) customSourceSelect.value = current;
+    };
+
+    const renderCustomFeedsList = (customFeeds) => {
+      if (!customFeedsList) return;
+      if (!Array.isArray(customFeeds) || !customFeeds.length) {
+        customFeedsList.innerHTML = '<div style="color:#94a3b8;font-size:13px;">No custom script feeds yet.</div>';
+        return;
+      }
+      customFeedsList.innerHTML = customFeeds.map((cf) => {
+        const name = esc(cf.url.replace("custom://", ""));
+        const title = esc(cf.title || cf.url);
+        const src = esc(cf.source_folder || "");
+        const destFolders = Array.isArray(feedFolders[cf.url]) ? feedFolders[cf.url] : [defaultFolder];
+        const destLabel = destFolders.map(esc).join(", ");
+        return `<div style="padding:8px 12px;border-radius:8px;background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <div style="min-width:0;">
+            <div style="font-weight:700;">${title} <span style="font-size:11px;padding:1px 5px;border-radius:4px;background:rgba(125,211,252,0.18);color:#7dd3fc;font-weight:700;">[SCRIPT]</span></div>
+            <div style="font-size:12px;color:#94a3b8;">Source: ${src} &rarr; Folder: ${destLabel}</div>
+          </div>
+          <button class="custom-edit-btn" data-url="${esc(cf.url)}" data-name="${name}" data-title="${esc(cf.title || "")}" data-source="${esc(cf.source_folder || "")}" data-dest="${esc(destFolders[0] === defaultFolder ? "" : destFolders[0])}" data-script="${esc(cf.script)}" style="padding:6px 12px;border-radius:8px;border:1px solid rgba(125,211,252,0.3);background:rgba(125,211,252,0.08);color:#7dd3fc;font-weight:700;font-size:13px;cursor:pointer;">Edit</button>
+        </div>`;
+      }).join("");
+    };
+
+    if (customFeedsList) {
+      customFeedsList.addEventListener("click", (ev) => {
+        const btn = ev.target.closest(".custom-edit-btn");
+        if (!btn) return;
+        customNameInput.value = btn.dataset.name || "";
+        customTitleInput.value = btn.dataset.title || "";
+        customSourceSelect.value = btn.dataset.source || "";
+        customDestFolderInput.value = btn.dataset.dest || "";
+        customScriptArea.value = btn.dataset.script || "";
+        customPreview.style.display = "none";
+        customNameInput.focus();
+      });
+    }
+
+    if (customRunBtn) {
+      customRunBtn.addEventListener("click", () => {
+        const source = customSourceSelect.value;
+        const script = customScriptArea.value;
+        if (!source || !script.trim()) {
+          setStatus("Source folder and script are required", true);
+          return;
+        }
+        customRunBtn.disabled = true;
+        setStatus("Running script...");
+        customPreview.style.display = "block";
+        customPreview.textContent = "Running...";
+        customStdout.style.display = "none";
+        customStdout.textContent = "";
+        fetch("/api/custom-feeds/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source_folder: source, script }),
+        })
+          .then((r) => r.json().then((data) => ({ status: r.status, data })))
+          .then(({ status, data }) => {
+            const stdout = data.stdout || "";
+            if (stdout) {
+              customStdout.textContent = stdout;
+              customStdout.style.display = "block";
+            }
+            if (status >= 400) {
+              customPreview.textContent = `Error: ${data.error || "Failed"}`;
+              setStatus(data.error || "Script error", true);
+              return;
+            }
+            const items = data.items || [];
+            const feedsInfo = data.source_feeds ? ` across ${data.source_feeds} feeds` : "";
+            const lines = [`${items.length} items returned (from ${data.source_count} source items${feedsInfo})`, ""];
+            items.slice(0, 20).forEach((item, i) => {
+              lines.push(`${i + 1}. ${item.title || "(no title)"}`);
+              if (item.link) lines.push(`   ${item.link}`);
+            });
+            if (items.length > 20) lines.push(`... and ${items.length - 20} more`);
+            customPreview.textContent = lines.join("\n");
+            setStatus(`Script returned ${items.length} items`);
+          })
+          .catch((err) => {
+            customPreview.textContent = `Error: ${err.message}`;
+            setStatus(err.message || "Failed to run script", true);
+          })
+          .finally(() => { customRunBtn.disabled = false; });
+      });
+    }
+
+    if (customSaveBtn) {
+      customSaveBtn.addEventListener("click", () => {
+        const name = customNameInput.value.trim();
+        const title = customTitleInput.value.trim();
+        const source = customSourceSelect.value;
+        const destFolder = customDestFolderInput.value.trim();
+        const script = customScriptArea.value;
+        if (!name) { setStatus("Name is required", true); return; }
+        if (!source) { setStatus("Source folder is required", true); return; }
+        if (!script.trim()) { setStatus("Script is required", true); return; }
+        customSaveBtn.disabled = true;
+        setStatus("Saving custom feed...");
+        const payload = { name, title, source_folder: source, script };
+        if (destFolder) payload.folder = destFolder;
+        fetch("/api/custom-feeds", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+          .then((r) => r.json().then((data) => ({ status: r.status, data })))
+          .then(({ status, data }) => {
+            if (status >= 400) throw new Error(data.error || "Failed");
+            applyFeeds(data);
+            setStatus(data.message || "Saved");
+          })
+          .catch((err) => setStatus(err.message || "Failed to save", true))
+          .finally(() => { customSaveBtn.disabled = false; });
+      });
+    }
+
+    const defaultScript = "def transform(entries):\n    return entries\n\n# Example: filter by keyword\n# def transform(entries):\n#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]";
+    if (customClearBtn) {
+      customClearBtn.addEventListener("click", () => {
+        customNameInput.value = "";
+        customTitleInput.value = "";
+        customSourceSelect.value = "";
+        customDestFolderInput.value = "";
+        customScriptArea.value = defaultScript;
+        customPreview.style.display = "none";
+        customPreview.textContent = "";
+        customStdout.style.display = "none";
+        customStdout.textContent = "";
+      });
+    }
 
     fetchFeeds().then(fetchItems).catch(fetchItems);
   </script>

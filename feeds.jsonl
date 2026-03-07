@@ -416,3 +416,23 @@
 {"action": "add_feed", "url": "ttps://papers.takara.ai/api/feed", "folder": "Favs/AI/Papers"}
 {"action": "remove_feed", "url": "ttps://papers.takara.ai/api/feed"}
 {"action": "add_feed", "url": "https://papers.takara.ai/api/feed", "folder": "Favs/AI/Papers"}
+{"action": "add_feed", "url": "custom://wownicew", "folder": "Default"}
+{"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Favs", "script": "def transform(entities):\n   return [e for e in entities if \"j\" in e['title']]", "title": "ONION"}
+{"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Favs", "script": "def transform(entities):\n   return [e for e in entities if \"j\" in e['title']]", "title": "ONION"}
+{"action": "move_feed", "url": "custom://wownicew", "folder": "Default"}
+{"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Default", "script": "def transform(entries):\n    return entries\n\n# Example: filter by keyword\n# def transform(entries):\n#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]", "title": "ONION"}
+{"action": "add_folder", "folder": "Scripts/Wow"}
+{"action": "move_feed", "url": "custom://wownicew", "folder": "Scripts/Wow"}
+{"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Favs", "script": "def transform(entries):\n    return entries\n\n# Example: filter by keyword\n# def transform(entries):\n#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]", "title": "ONION"}
+{"action": "add_folder", "folder": "Scripts/Wow"}
+{"action": "move_feed", "url": "custom://wownicew", "folder": "Scripts/Wow"}
+{"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Favs", "script": "def transform(entries):\n    return entries\n\n# Example: filter by keyword\n# def transform(entries):\n#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]", "title": "ONION"}
+{"action": "add_folder", "folder": "Scripts/Wow"}
+{"action": "move_feed", "url": "custom://wownicew", "folder": "Scripts/Wow"}
+{"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Favs", "script": "def transform(entries):\n    return [e for e in entries if 'bee' in (e.get('title') or '').lower()]\n\n# Example: filter by keyword\n# def transform(entries):\n#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]", "title": "ONION"}
+{"action": "add_folder", "folder": "Scripts/Wow"}
+{"action": "move_feed", "url": "custom://wownicew", "folder": "Scripts/Wow"}
+{"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Favs", "script": "def transform(entries):\n    return [e for e in entries if 'bee' in (e.get('title') or '').lower()]\n\n# Example: filter by keyword\n# def transform(entries):\n#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]", "title": "ONION"}
+{"action": "add_folder", "folder": "Scripts/Wow"}
+{"action": "move_feed", "url": "custom://wownicew", "folder": "Scripts/Wow"}
+{"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Favs", "script": "def transform(entries):\n    return [e for e in entries if 'bee' in (e.get('title') or '').lower()]\n\n# Example: filter by keyword\n# def transform(entries):\n#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]", "title": "ONION"}
