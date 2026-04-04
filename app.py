@@ -14,7 +14,8 @@ import time
 import html
 from datetime import datetime, timezone
 from html import escape
-from io import BytesIO
+import sys
+from io import BytesIO, StringIO
 from pathlib import Path
 from collections import deque
 from threading import Lock, Thread
@@ -26,6 +27,14 @@ import feedparser
 import listparser
 import requests
 from flask import Flask, jsonify, request, send_file, send_from_directory
+
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+    _ytt_api = YouTubeTranscriptApi()
+    _HAS_YTT = True
+except ImportError:
+    _ytt_api = None
+    _HAS_YTT = False
 
 app = Flask(__name__)
 
@@ -41,6 +50,7 @@ CACHE_DIR = Path(
     os.environ.get("FEED_CACHE_DIR", Path(__file__).with_name("cache"))
 )
 CACHE_ITEMS_PATH = CACHE_DIR / "items.json"
+CACHE_META_PATH = CACHE_DIR / "feed_meta.json"
 DEFAULT_FOLDER = "Default"
 TWITTER_FEED_URL = "http://twitter"
 TWITTER_SCROLLS_PATH = Path(__file__).with_name("twitter_scrolls.jsonl")
@@ -56,6 +66,9 @@ _NITTER_RATE_WINDOW = 6.0
 _NITTER_RATE_MAX = 1
 _feed_rate_calls: deque[float] = deque(maxlen=_FEED_RATE_MAX)
 _nitter_feed_rate_calls: deque[float] = deque(maxlen=_NITTER_RATE_MAX)
+_YT_TRANSCRIPT_RATE_WINDOW = 2.0
+_YT_TRANSCRIPT_RATE_MAX = 1
+_yt_transcript_rate_calls: deque[float] = deque(maxlen=_YT_TRANSCRIPT_RATE_MAX)
 _NITTER_RETWEET_RE = re.compile(r"^RT by\s+(@?[\w.]+):?\s*(.*)", re.IGNORECASE)
 _NITTER_QUOTE_BLOCK_RE = re.compile(r"<blockquote\b[^>]*>(.*?)</blockquote>", re.IGNORECASE | re.DOTALL)
 _NITTER_HREF_RE = re.compile(r'href="([^"]+)"', re.IGNORECASE)
@@ -78,10 +91,28 @@ def _append_event(path: Path, event: dict) -> None:
 
 
 def _clear_cache() -> None:
+    for p in (CACHE_ITEMS_PATH, CACHE_META_PATH):
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _load_feed_meta() -> dict[str, dict]:
+    if not CACHE_META_PATH.exists():
+        return {}
     try:
-        CACHE_ITEMS_PATH.unlink()
-    except FileNotFoundError:
-        return
+        with CACHE_META_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_feed_meta(meta: dict[str, dict]) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with CACHE_META_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(meta, handle)
 
 
 def _load_cached_items() -> List[dict]:
@@ -204,6 +235,51 @@ def _is_nitter_feed(url: str) -> bool:
         return False
     host = (parsed.hostname or "").lower()
     return "nitter" in host
+
+
+def _is_custom_feed(url: str) -> bool:
+    return str(url or "").startswith("custom://")
+
+
+def _custom_scripts_from_events(events: Iterable[dict]) -> dict[str, dict]:
+    scripts: dict[str, dict] = {}
+    for evt in events:
+        action = evt.get("action")
+        url = str(evt.get("url", "")).strip()
+        if action == "set_custom_script" and url and _is_custom_feed(url):
+            scripts[url] = {
+                "url": url,
+                "source_folder": str(evt.get("source_folder", "")).strip(),
+                "script": str(evt.get("script", "")).strip(),
+                "title": str(evt.get("title", "")).strip() or url,
+            }
+        elif action == "remove_feed" and url:
+            scripts.pop(url, None)
+    return scripts
+
+
+def _run_custom_script(script: str, entries: List[dict]) -> tuple[List[dict], str, str]:
+    """Returns (result_items, error_string, captured_stdout)."""
+    ns: dict = {}
+    capture = StringIO()
+    old_stdout = sys.stdout
+    try:
+        exec(script, ns)
+    except Exception as exc:
+        return [], f"Script compile error: {exc}", ""
+    transform = ns.get("transform")
+    if not callable(transform):
+        return [], "Script must define a callable 'transform(entries)'", ""
+    try:
+        sys.stdout = capture
+        result = transform(entries)
+    except Exception as exc:
+        return [], f"Script runtime error: {exc}", capture.getvalue()
+    finally:
+        sys.stdout = old_stdout
+    if not isinstance(result, list):
+        return [], "transform() must return a list", capture.getvalue()
+    return result, "", capture.getvalue()
 
 
 def _fetch_nitter_avatar(base_url: str, handle: str) -> str:
@@ -492,6 +568,10 @@ def _state_payload(events: Iterable[dict] | None = None) -> dict:
     tags = _feed_tags_from_events(events_list)
     cached_titles = _feed_titles_from_items(_load_cached_items())
     feed_titles = {url: title for url, title in cached_titles.items() if url in feeds}
+    custom_scripts = _custom_scripts_from_events(events_list)
+    for url, cfg in custom_scripts.items():
+        if url in feeds and cfg.get("title"):
+            feed_titles[url] = cfg["title"]
     return {
         "feeds": feeds,
         "feed_folders": normalized_folders,
@@ -499,6 +579,7 @@ def _state_payload(events: Iterable[dict] | None = None) -> dict:
         "favorites": sorted(url for url, tagset in tags.items() if "favorite" in tagset),
         "tags": {url: sorted(tagset) for url, tagset in tags.items() if tagset},
         "feed_titles": feed_titles,
+        "custom_feeds": list(custom_scripts.values()),
         "last_refreshed": _cache_last_refreshed(),
     }
 
@@ -578,7 +659,8 @@ def _twitter_summary(entry: dict) -> str:
     parts: list[str] = []
     text = str(entry.get("text") or "").strip()
     if text:
-        parts.append(f"<div>{escape(text).replace('\\n', '<br/>')}</div>")
+        escaped = escape(text).replace('\n', '<br/>')
+        parts.append(f"<div>{escaped}</div>")
     media = entry.get("media_urls") or []
     for url in media:
         url_str = str(url or "").strip()
@@ -923,6 +1005,29 @@ def _nitter_feed_rate_limit():
     _nitter_feed_rate_calls.append(time.time())
 
 
+def _yt_transcript_rate_limit():
+    now = time.time()
+    if len(_yt_transcript_rate_calls) == _YT_TRANSCRIPT_RATE_MAX:
+        earliest = _yt_transcript_rate_calls[0]
+        elapsed = now - earliest
+        if elapsed < _YT_TRANSCRIPT_RATE_WINDOW:
+            time.sleep(_YT_TRANSCRIPT_RATE_WINDOW - elapsed)
+    _yt_transcript_rate_calls.append(time.time())
+
+
+FETCH_TRANSCRIPTS = False
+
+def _fetch_youtube_transcript(video_id: str) -> str | None:
+    if not FETCH_TRANSCRIPTS or not _HAS_YTT or not video_id:
+        return None
+    try:
+        _yt_transcript_rate_limit()
+        transcript = _ytt_api.fetch(video_id, languages=["en"])
+        return " ".join(snippet.text for snippet in transcript)
+    except Exception:
+        return None
+
+
 def _fetch_bluesky_post_json(link: str) -> dict | None:
     parsed = _bluesky_handle_rkey_from_link(link)
     if not parsed:
@@ -1032,6 +1137,20 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
         item["bluesky_author_handle"] = bluesky_author_handle
     if bluesky_author_display:
         item["bluesky_author_display"] = bluesky_author_display
+    if is_youtube:
+        vid = str(entry.get("yt_videoid") or entry.get("videoid") or "")
+        if "yt:video:" in vid:
+            vid = vid.split("yt:video:", 1)[1]
+        if not vid and link:
+            if "youtube.com" in link and "v=" in link:
+                vid = link.split("v=", 1)[1].split("&", 1)[0]
+            elif "youtu.be/" in link:
+                vid = link.split("youtu.be/", 1)[1].split("?", 1)[0]
+        if vid:
+            item["youtube_video_id"] = vid
+            transcript = _fetch_youtube_transcript(vid)
+            if transcript:
+                item["youtube_transcript"] = transcript
     if youtube_views is not None:
         item["youtube_views"] = youtube_views
     if like_count is not None:
@@ -1061,11 +1180,24 @@ def _item_from_entry(feed_url: str, entry: dict, feed_title: str = "", feed_imag
 def _gather_feed_items(
     feeds: Iterable[str],
     progress_cb: Callable[[int, int, str], None] | None = None,
-) -> List[dict]:
+    old_items: List[dict] | None = None,
+    feed_meta: dict[str, dict] | None = None,
+) -> tuple[List[dict], dict[str, dict]]:
     items: List[dict] = []
     feed_list = list(feeds)
-    total = len(feed_list)
-    for idx, url in enumerate(feed_list, 1):
+    regular_feeds = [u for u in feed_list if not _is_custom_feed(u)]
+    custom_feeds = [u for u in feed_list if _is_custom_feed(u)]
+    total = len(regular_feeds) + len(custom_feeds)
+    meta = dict(feed_meta or {})
+    # Index old items by feed URL for 304 fallback
+    old_by_feed: dict[str, List[dict]] = {}
+    for item in (old_items or []):
+        feed_url = item.get("feed", "")
+        if feed_url:
+            old_by_feed.setdefault(feed_url, []).append(item)
+    active_feeds = set(feed_list)
+    # Pass 1: gather regular feeds
+    for idx, url in enumerate(regular_feeds, 1):
         try:
             print(f"Fetching feed {idx}/{total}: {url}", flush=True)
             if url == TWITTER_FEED_URL:
@@ -1081,7 +1213,13 @@ def _gather_feed_items(
                 _nitter_feed_rate_limit()
             else:
                 _feed_rate_limit()
-            parsed = feedparser.parse(url)
+            kwargs: dict = {}
+            cached_meta = meta.get(url) or {}
+            if cached_meta.get("etag"):
+                kwargs["etag"] = cached_meta["etag"]
+            if cached_meta.get("modified"):
+                kwargs["modified"] = cached_meta["modified"]
+            parsed = feedparser.parse(url, **kwargs)
         except Exception:
             parsed = None
         if progress_cb:
@@ -1091,11 +1229,75 @@ def _gather_feed_items(
                 pass
         if not parsed:
             continue
+        status = getattr(parsed, "status", None)
+        if status == 304:
+            print(f"  304 Not Modified, reusing cached items", flush=True)
+            items.extend(old_by_feed.get(url, []))
+            continue
+        # Update meta with new etag/modified from response
+        new_etag = getattr(parsed, "etag", None) or ""
+        new_modified = getattr(parsed, "modified", None) or ""
+        if new_etag or new_modified:
+            meta[url] = {"etag": new_etag, "modified": new_modified}
         feed_title = _extract_feed_title(url, parsed)
         feed_image = _extract_feed_image(url, parsed)
         entries = parsed.entries if hasattr(parsed, "entries") else []
         items.extend(_item_from_entry(url, entry, feed_title, feed_image) for entry in entries)
-    return items
+    # Pass 2: run custom script feeds
+    if custom_feeds:
+        events = _load_events(LOG_PATH)
+        scripts = _custom_scripts_from_events(events)
+        _, moves, removed = _folders_from_events(events)
+        feed_folders = _feed_folders_from_events(events, moves, removed)
+        # build folder -> set of feed urls mapping
+        folder_feeds: dict[str, set[str]] = {}
+        for feed_url, folder_list in feed_folders.items():
+            for fname in folder_list:
+                folder_feeds.setdefault(fname, set()).add(feed_url)
+        base_idx = len(regular_feeds)
+        for ci, url in enumerate(custom_feeds, 1):
+            idx = base_idx + ci
+            cfg = scripts.get(url)
+            if progress_cb:
+                try:
+                    progress_cb(idx, total, url)
+                except Exception:
+                    pass
+            if not cfg:
+                continue
+            source_folder = cfg.get("source_folder", "")
+            script = cfg.get("script", "")
+            title = cfg.get("title", "") or url
+            if not source_folder or not script:
+                continue
+            # collect items from all feeds in the source folder (and subfolders)
+            source_feed_urls: set[str] = set()
+            for fname, furls in folder_feeds.items():
+                if fname == source_folder or fname.startswith(f"{source_folder}/"):
+                    source_feed_urls |= furls
+            source_items = [i for i in items if i.get("feed") in source_feed_urls]
+            print(f"Running custom script {ci}/{len(custom_feeds)}: {url} (folder: {source_folder}, {len(source_feed_urls)} feeds, {len(source_items)} items)", flush=True)
+            result, err, stdout = _run_custom_script(script, [dict(i) for i in source_items])
+            if stdout:
+                print(f"  Script output: {stdout.rstrip()}", flush=True)
+            if err:
+                print(f"  Custom script error: {err}", flush=True)
+                continue
+            for ri, entry in enumerate(result):
+                if not isinstance(entry, dict):
+                    continue
+                entry["feed"] = url
+                entry["feed_title"] = title
+                original_id = entry.get("id") or entry.get("link") or str(ri)
+                entry["id"] = f"{url}|{original_id}"
+                if "_ts" not in entry:
+                    entry["_ts"] = entry.get("_ts", 0)
+                if "_viewed" not in entry:
+                    entry["_viewed"] = False
+                items.append(entry)
+    # Clean up meta for feeds no longer subscribed
+    meta = {k: v for k, v in meta.items() if k in active_feeds}
+    return items, meta
 
 
 def _refresh_cache(
@@ -1103,8 +1305,14 @@ def _refresh_cache(
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> List[dict]:
     feed_list = list(feeds)
-    items = _gather_feed_items(feed_list, progress_cb=progress_cb)
+    old_items = _load_cached_items()
+    feed_meta = _load_feed_meta()
+    items, updated_meta = _gather_feed_items(
+        feed_list, progress_cb=progress_cb,
+        old_items=old_items, feed_meta=feed_meta,
+    )
     _save_cache(items)
+    _save_feed_meta(updated_meta)
     return items
 
 
@@ -1572,6 +1780,105 @@ def api_feed_folder():
     state = _state_payload()
     state["message"] = "moved"
     return jsonify(state)
+
+
+@app.route("/api/custom-feeds", methods=["GET"])
+def api_list_custom_feeds():
+    events = _load_events(LOG_PATH)
+    scripts = _custom_scripts_from_events(events)
+    return jsonify({"custom_feeds": list(scripts.values())})
+
+
+@app.route("/api/custom-feeds", methods=["POST"])
+def api_save_custom_feed():
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name", "")).strip()
+    source_folder = str(payload.get("source_folder", "")).strip()
+    script = str(payload.get("script", ""))
+    title = str(payload.get("title", "")).strip() or name
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    if not source_folder:
+        return jsonify({"error": "source_folder is required"}), 400
+    if not script.strip():
+        return jsonify({"error": "script is required"}), 400
+    url = f"custom://{name}"
+    folder = str(payload.get("folder", "")).strip() or DEFAULT_FOLDER
+    events = _load_events(LOG_PATH)
+    feeds = _feeds_from_events(events)
+    is_new = url not in feeds
+    if is_new:
+        _append_event(LOG_PATH, {"action": "add_feed", "url": url, "folder": folder})
+        _clear_cache()
+    if folder != DEFAULT_FOLDER:
+        _append_event(LOG_PATH, {"action": "add_folder", "folder": folder})
+    if not is_new:
+        _append_event(LOG_PATH, {"action": "move_feed", "url": url, "folder": folder})
+    _append_event(LOG_PATH, {
+        "action": "set_custom_script",
+        "url": url,
+        "source_folder": source_folder,
+        "script": script,
+        "title": title,
+    })
+    # Auto-run: execute the script and merge results into cache
+    events = _load_events(LOG_PATH)
+    _, moves, removed = _folders_from_events(events)
+    feed_folders = _feed_folders_from_events(events, moves, removed)
+    source_feed_urls: set[str] = set()
+    for feed_url, folder_list in feed_folders.items():
+        for fname in folder_list:
+            if fname == source_folder or fname.startswith(f"{source_folder}/"):
+                source_feed_urls.add(feed_url)
+    cached = _load_cached_items()
+    source_items = [i for i in cached if i.get("feed") in source_feed_urls]
+    result, err, stdout = _run_custom_script(script, [dict(i) for i in source_items])
+    if stdout:
+        print(f"  Custom script output: {stdout.rstrip()}", flush=True)
+    if err:
+        print(f"  Custom script error: {err}", flush=True)
+    else:
+        # Remove old items for this custom feed, add new ones
+        cached = [i for i in cached if i.get("feed") != url]
+        for ri, entry in enumerate(result):
+            if not isinstance(entry, dict):
+                continue
+            entry["feed"] = url
+            entry["feed_title"] = title
+            original_id = entry.get("id") or entry.get("link") or str(ri)
+            entry["id"] = f"{url}|{original_id}"
+            if "_ts" not in entry:
+                entry["_ts"] = 0
+            if "_viewed" not in entry:
+                entry["_viewed"] = False
+            cached.append(entry)
+        _save_cache(cached)
+    state = _state_payload()
+    state["message"] = "custom feed saved" + (f" ({len(result)} items)" if not err else f" (script error: {err})")
+    return jsonify(state), 201
+
+
+@app.route("/api/custom-feeds/run", methods=["POST"])
+def api_run_custom_feed():
+    payload = request.get_json(silent=True) or {}
+    source_folder = str(payload.get("source_folder", "")).strip()
+    script = str(payload.get("script", ""))
+    if not source_folder or not script.strip():
+        return jsonify({"error": "source_folder and script are required"}), 400
+    events = _load_events(LOG_PATH)
+    _, moves, removed = _folders_from_events(events)
+    feed_folders = _feed_folders_from_events(events, moves, removed)
+    source_feed_urls: set[str] = set()
+    for feed_url, folder_list in feed_folders.items():
+        for fname in folder_list:
+            if fname == source_folder or fname.startswith(f"{source_folder}/"):
+                source_feed_urls.add(feed_url)
+    cached = _load_cached_items()
+    source_items = [i for i in cached if i.get("feed") in source_feed_urls]
+    result, err, stdout = _run_custom_script(script, [dict(i) for i in source_items])
+    if err:
+        return jsonify({"error": err, "items": [], "stdout": stdout}), 400
+    return jsonify({"items": result, "source_count": len(source_items), "source_feeds": len(source_feed_urls), "stdout": stdout})
 
 
 @app.route("/twitter_media/<path:filename>", methods=["GET"])
