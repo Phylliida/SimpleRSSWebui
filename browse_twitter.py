@@ -140,7 +140,6 @@ async def scrape_list(
     Open the list in a real browser window, optionally pause for manual login,
     scroll, and return visible post text.
     """
-    '''
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Starting browser with profile at {PROFILE_DIR}")
 
@@ -182,7 +181,6 @@ async def scrape_list(
     if not html_chunks:
         print("No HTML captured; nothing to parse")
         return []
-    '''
     with open("twitter_scrolls.log", "r") as f:
         html_chunks = re.split(r"\n\n<!-- scroll \d+ -->\n", f.read())
         html_chunks = html_chunks[:len(html_chunks)//2]
@@ -389,7 +387,7 @@ async def scrape_list(
 
     print(f"Found {len(tweet_objects)} tweets, downloading {len(avatars)} avatars")
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    download_rate_limiter = _RateLimiter(min_interval=0.6)  # ~1-2 downloads/sec
+    download_rate_limiter = _RateLimiter(min_interval=3)  # ~1-2 downloads/sec
     avatar_files: dict[str, str] = {}
     for handle, avatar_url in avatars.items():
         parsed = urlparse(avatar_url)
