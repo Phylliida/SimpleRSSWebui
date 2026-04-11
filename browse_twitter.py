@@ -1,7 +1,6 @@
 import asyncio
 import json
 import re
-import time
 import base64
 import shutil
 from pathlib import Path
@@ -16,14 +15,64 @@ os.chdir(os.path.dirname(__file__))
 
 LIST_URL = "https://x.com/i/lists/2009779378327302653"
 PROFILE_DIR = Path(__file__).parent / ".twitter_profile"
-LOG_PATH = Path(__file__).parent / "twitter_scrolls.log"
 JSONL_PATH = Path(__file__).parent / "twitter_scrolls.jsonl"
 AVATAR_DIR = Path(__file__).parent / "twitter_profile_pics"
 MEDIA_DIR = Path(__file__).parent / "twitter_media"
 URL_MAP_PATH = MEDIA_DIR / "url_mapping.json"
 
+BUFFER_RESET_INTERVAL = 5
+CACHE_WARM_SCROLLS = 5
+DOM_PRUNE_KEEP = 8  # keep this many cells after pruning
 
 _COUNT_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)([KkMm])?")
+
+# ──────────────────────────────────────────────────────────────────
+# JS that guts old tweet cells to free renderer memory.
+# We keep the outer div (with a fixed height) so Twitter's virtual
+# scroller doesn't recalculate and jump.  Everything heavy inside
+# (images, videos, nested DOM) gets destroyed.
+# ──────────────────────────────────────────────────────────────────
+PRUNE_DOM_JS = """
+(() => {
+    // 1. Kill ALL videos on the page (autoplay eats huge memory)
+    document.querySelectorAll('video').forEach(v => {
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+    });
+
+    // 2. Revoke any blob URLs
+    document.querySelectorAll('[src^="blob:"]').forEach(el => {
+        try { URL.revokeObjectURL(el.src); } catch(e) {}
+    });
+
+    // 3. Gut old cells, preserve height shell
+    const cells = [...document.querySelectorAll('[data-testid="cellInnerDiv"]')];
+    const keep = """ + str(DOM_PRUNE_KEEP) + """;
+    if (cells.length > keep) {
+        for (let i = 0; i < cells.length - keep; i++) {
+            const cell = cells[i];
+            if (cell.dataset.pruned) continue;
+            const h = cell.offsetHeight;
+            // Null out heavy resources before removing subtree
+            cell.querySelectorAll('img').forEach(img => {
+                img.removeAttribute('src');
+                img.removeAttribute('srcset');
+            });
+            cell.querySelectorAll('video, source, iframe').forEach(el => el.remove());
+            // Replace contents with empty shell
+            cell.innerHTML = '';
+            cell.style.height = h + 'px';
+            cell.style.minHeight = h + 'px';
+            cell.style.overflow = 'hidden';
+            cell.dataset.pruned = '1';
+        }
+    }
+
+    // 4. Hint to GC (works if DevTools protocol exposed it)
+    if (typeof gc === 'function') { try { gc(); } catch(e) {} }
+})();
+"""
 
 
 def _parse_count(label: str) -> int | None:
@@ -62,22 +111,18 @@ def _find_captured(url: str | None, captured: dict[str, Path]) -> Path | None:
     if not url:
         return None
 
-    # 1. Direct match
     if url in captured:
         return captured[url]
 
-    # 2. Normalize &amp;
     normalized = url.replace("&amp;", "&")
     if normalized in captured:
         return captured[normalized]
 
-    # 3. Match by path only (ignore query params)
     base_path = urlparse(normalized).path
     for cap_url, path in captured.items():
         if urlparse(cap_url).path == base_path:
             return path
 
-    # 4. Strip profile-image size variants and re-match
     stripped = _strip_profile_size(base_path)
     if stripped != base_path:
         for cap_url, path in captured.items():
@@ -85,7 +130,6 @@ def _find_captured(url: str | None, captured: dict[str, Path]) -> Path | None:
             if cap_stripped == stripped:
                 return path
 
-    # 5. Match just the last path segment (filename)
     filename = base_path.rstrip("/").split("/")[-1] if base_path else ""
     if filename:
         stripped_fn = _strip_profile_size(filename)
@@ -134,192 +178,17 @@ def _best_pbs_url(img, *, allow_profile: bool = False) -> str | None:
     return url
 
 
-async def scrape_list(
-    scrolls: int = 1000, pause: float = 5, wait_for_login: bool = True
-) -> List[str]:
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Starting browser (profile: {PROFILE_DIR})")
-
-    html_chunks: List[str] = []
-    captured_images: dict[str, Path] = {}
-    lookup_map: dict[str, str] = {}
-    counter = 0
-
-    browser = await uc.start(user_data_dir=str(PROFILE_DIR), headless=False)
-    try:
-        # ──────────────────────────────────────────────────────────────
-        # KEY FIX #1: open about:blank first, set up CDP hooks BEFORE
-        # navigating to the real page so we capture every image from
-        # the very first network request onward.
-        # ──────────────────────────────────────────────────────────────
-        tab = await browser.get("about:blank")
-        print("Opened about:blank — setting up CDP hooks before navigation…")
-
-        async def on_response(event: uc.cdp.network.ResponseReceived):
-            nonlocal counter
-            mime = event.response.mime_type or ""
-            if "image" not in mime:
-                return
-
-            url = event.response.url
-            if url in captured_images:
-                return
-
-            try:
-                result = await tab.send(
-                    uc.cdp.network.get_response_body(event.request_id)
-                )
-                body_str, is_b64 = result
-
-                if is_b64:
-                    data = base64.b64decode(body_str)
-                else:
-                    data = body_str.encode("utf-8")
-
-                if len(data) < 50:
-                    return
-
-                ext = mime.split("/")[-1]
-                ext = ext.replace("svg+xml", "svg").replace("jpeg", "jpg")
-
-                parsed = urlparse(url)
-                path_name = unquote(parsed.path.split("/")[-1])
-                stem = Path(path_name).stem if path_name else ""
-                if not stem or not stem.strip():
-                    stem = "image"
-
-                fname = f"{counter:04d}_{stem}.{ext}"
-                counter += 1
-
-                dest = MEDIA_DIR / fname
-                dest.write_bytes(data)
-
-                captured_images[url] = dest
-                lookup_map[fname] = url
-
-                is_profile = "profile_images" in url
-                tag = "[avatar]" if is_profile else "[media] "
-                print(f"  {tag} {fname} ← {url[:120]}")
-
-            except Exception as e:
-                if "profile_images" in (event.response.url or ""):
-                    print(f"  [avatar FAIL] {event.response.url[:100]}: {e}")
-
-        tab.add_handler(uc.cdp.network.ResponseReceived, on_response)
-
-        # Enable network domain
-        try:
-            await tab.send(
-                uc.cdp.network.enable(
-                    max_total_buffer_size=100_000_000,
-                    max_resource_buffer_size=10_000_000,
-                )
-            )
-        except TypeError:
-            await tab.send(uc.cdp.network.enable())
-
-        # ──────────────────────────────────────────────────────────────
-        # KEY FIX #2: disable the disk cache so profile images that the
-        # browser has seen before still generate real network responses
-        # that our CDP handler can intercept.
-        # ──────────────────────────────────────────────────────────────
-        try:
-            await tab.send(
-                uc.cdp.network.set_cache_disabled(cache_disabled=True)
-            )
-            print("Browser disk-cache DISABLED (forces fresh fetches)")
-        except Exception as e:
-            print(f"⚠ Could not disable cache: {e}")
-
-        print("CDP network capture active — now navigating to list…")
-
-        # NOW navigate to the real page
-        await tab.get(LIST_URL)
-        print(f"Navigated to {LIST_URL}")
-
-        if wait_for_login:
-            print(
-                "Log in / dismiss dialogs in the browser, then press Enter…"
-            )
-            #await asyncio.get_running_loop().run_in_executor(
-            #    None, lambda: input("")
-            #)
-
-        for i in range(scrolls):
-            try:
-                await tab.evaluate(
-                    "window.scrollBy(0, window.innerHeight * 0.9);"
-                )
-                await tab.sleep(pause)
-
-                html = await tab.get_content()
-                html_chunks.append(html)
-
-                n_avatars = sum(
-                    1 for u in captured_images if "profile_images" in u
-                )
-                n_media = len(captured_images) - n_avatars
-                print(
-                    f"Scroll {i + 1}/{scrolls} — "
-                    f"html {len(html):,} chars, "
-                    f"{n_avatars} avatars + {n_media} media = "
-                    f"{len(captured_images)} total"
-                )
-
-                with LOG_PATH.open("a", encoding="utf-8") as f:
-                    f.write(f"\n\n<!-- scroll {i + 1} -->\n")
-                    f.write(html)
-                    f.write("\n")
-
-            except KeyboardInterrupt:
-                print(
-                    f"\nInterrupted after {i + 1} scroll(s); "
-                    f"will parse what we have"
-                )
-                break
-            except asyncio.CancelledError:
-                print(
-                    f"\nCancelled after {i + 1} scroll(s); "
-                    f"will parse what we have"
-                )
-                break
-
-        # Re-enable cache before closing
-        try:
-            await tab.send(
-                uc.cdp.network.set_cache_disabled(cache_disabled=False)
-            )
-        except Exception:
-            pass
-
-        URL_MAP_PATH.write_text(
-            json.dumps(lookup_map, indent=2, ensure_ascii=False)
-        )
-        print(
-            f"URL mapping saved to {URL_MAP_PATH} ({len(lookup_map)} entries)"
-        )
-
-    finally:
-        await browser.stop()
-        print("Browser closed")
-
-    if not html_chunks:
-        print("No HTML captured; nothing to parse")
-        return []
-
-    # ═══════════════ Parse tweets from collected HTML ═══════════════
-    combined_html = "\n".join(html_chunks)
-    soup = BeautifulSoup(combined_html, "lxml")
+def _parse_articles(
+    html: str,
+    captured_images: dict[str, Path],
+    seen: set,
+    tweet_objects: list[dict],
+) -> int:
+    soup = BeautifulSoup(html, "lxml")
     articles = soup.select('article[data-testid="tweet"]')
-    print(f"Parsing {len(articles)} tweet articles…")
-
-    tweet_objects: List[dict] = []
-    seen: set = set()
+    added = 0
 
     for idx, article in enumerate(articles, 1):
-        # --- Tweet URL / user ---
         status_el = article.select_one('a[href*="/status/"]')
         url = status_el.get("href") if status_el else None
         if url and url.startswith("/"):
@@ -347,7 +216,6 @@ async def scrape_list(
                 if segs:
                     user = segs[0]
 
-        # --- Retweet / repost ---
         retweeted_by = None
         social_el = article.select_one('[data-testid="socialContext"]')
         social_link = social_el.find_parent("a") if social_el else None
@@ -379,14 +247,12 @@ async def scrape_list(
                 if ng and ng.lower() != "you":
                     retweeted_by = ng
 
-        # --- Quote block ---
         quote_block = None
         for cand in article.select('div[role="link"][tabindex="0"]'):
             if cand.select_one('[data-testid="tweetText"]'):
                 quote_block = cand
                 break
 
-        # --- Tweet text ---
         text_parts: List[str] = []
         for tn in article.select('[data-testid="tweetText"]'):
             if quote_block and quote_block in tn.parents:
@@ -401,17 +267,14 @@ async def scrape_list(
         time_el = article.select_one("time")
         created_at = time_el.get("datetime") if time_el else None
 
-        # ── Avatar (3 extraction methods) ──────────────────────────
         avatar_src = None
 
-        # Method 1: <img src="…/profile_images/…">
         avatar_el = article.select_one(
             'img[src*="pbs.twimg.com/profile_images"]'
         )
         if avatar_el:
             avatar_src = avatar_el.get("src")
 
-        # Method 2: srcset contains profile_images
         if not avatar_src:
             for img in article.select("img[srcset]"):
                 srcset = img.get("srcset", "")
@@ -421,7 +284,6 @@ async def scrape_list(
                         avatar_src = first_url
                         break
 
-        # Method 3: CSS background-image on the avatar wrapper
         if not avatar_src:
             for el in article.select(
                 '[data-testid="Tweet-User-Avatar"] [style]'
@@ -436,7 +298,6 @@ async def scrape_list(
                     avatar_src = m.group(1)
                     break
 
-        # Match to captured file
         avatar_local = _find_captured(avatar_src, captured_images)
 
         avatar_rel = None
@@ -447,7 +308,6 @@ async def scrape_list(
                 shutil.copy2(avatar_local, avatar_dest)
             avatar_rel = f"twitter_profile_pics/{avatar_dest.name}"
 
-        # ── Media images ───────────────────────────────────────────
         media_local: List[str] = []
         media_orig_urls: List[str] = []
 
@@ -476,7 +336,6 @@ async def scrape_list(
             if orig not in media_orig_urls:
                 media_orig_urls.append(orig)
 
-        # Background images
         for el in article.select("[style]"):
             if quote_block and quote_block in el.parents:
                 continue
@@ -495,7 +354,6 @@ async def scrape_list(
                 if bg_url not in media_orig_urls:
                     media_orig_urls.append(bg_url)
 
-        # Video posters
         for vid in article.select("video[poster]"):
             if quote_block and quote_block in vid.parents:
                 continue
@@ -509,7 +367,6 @@ async def scrape_list(
                 if poster not in media_orig_urls:
                     media_orig_urls.append(poster)
 
-        # --- Engagement ---
         rep_el = article.select_one('button[data-testid="reply"]')
         ret_el = article.select_one('button[data-testid="retweet"]')
         lik_el = article.select_one('button[data-testid="like"]')
@@ -523,7 +380,6 @@ async def scrape_list(
             _parse_count(lik_el.get("aria-label")) if lik_el else None
         )
 
-        # --- Quote tweet ---
         quote = None
         if quote_block:
             qs_el = quote_block.select_one('a[href*="/status/"]')
@@ -619,7 +475,6 @@ async def scrape_list(
                     "media_fallback_urls": q_media_orig,
                 }
 
-        # --- Deduplicate ---
         key = tweet_id or text
         if key in seen:
             continue
@@ -645,43 +500,234 @@ async def scrape_list(
                 "media_fallback_urls": media_orig_urls,
             }
         )
+        added += 1
 
-        if idx % 50 == 0:
-            print(f"  …parsed {idx}/{len(articles)}")
+    return added
 
-    # ── Summary ──
-    avatars_local = sum(
-        1
-        for t in tweet_objects
-        if (t.get("avatar") or "").startswith("twitter_profile_pics/")
-    )
-    avatars_url_only = sum(
-        1
-        for t in tweet_objects
-        if t.get("avatar")
-        and not t["avatar"].startswith("twitter_profile_pics/")
-    )
-    avatars_none = sum(1 for t in tweet_objects if not t.get("avatar"))
-    print(
-        f"Parsed {len(tweet_objects)} unique tweets "
-        f"from {len(articles)} articles"
-    )
-    print(
-        f"Avatars: {avatars_local} local, "
-        f"{avatars_url_only} URL-only fallback, "
-        f"{avatars_none} missing"
-    )
 
-    with JSONL_PATH.open("w", encoding="utf-8") as f:
-        for t in tweet_objects:
-            f.write(json.dumps(t, ensure_ascii=False) + "\n")
-    print(f"Wrote {len(tweet_objects)} tweets → {JSONL_PATH}")
+# ══════════════════════════════════════════════════════════════════════
+#  Main scraper
+# ══════════════════════════════════════════════════════════════════════
+
+async def scrape_list(
+    scrolls: int = 1000, pause: float = 5, wait_for_login: bool = True
+) -> List[str]:
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+
+    captured_images: dict[str, Path] = {}
+    captured_paths: set[str] = set()
+    lookup_map: dict[str, str] = {}
+    counter = 0
+
+    tweet_objects: list[dict] = []
+    seen: set = set()
+
+    pending_requests: list[tuple[uc.cdp.network.RequestId, str, str]] = []
+
+    browser = await uc.start(user_data_dir=str(PROFILE_DIR), headless=False)
+    tab = None
+
+    try:
+        tab = await browser.get("about:blank")
+
+        # ── CDP handler: zero awaits, just queue ──
+        async def on_response(event: uc.cdp.network.ResponseReceived):
+            mime = event.response.mime_type or ""
+            if "image" not in mime:
+                return
+            url = event.response.url
+            if url in captured_images:
+                return
+            normalized = url.replace("&amp;", "&")
+            if normalized in captured_images:
+                return
+            if urlparse(normalized).path in captured_paths:
+                return
+            pending_requests.append((event.request_id, url, mime))
+
+        # ── Drain queue sequentially ──
+        async def drain_pending():
+            nonlocal counter
+            batch = pending_requests[:]
+            pending_requests.clear()
+            for request_id, url, mime in batch:
+                if url in captured_images:
+                    continue
+                normalized = url.replace("&amp;", "&")
+                if normalized in captured_images:
+                    continue
+                base_path = urlparse(normalized).path
+                if base_path in captured_paths:
+                    continue
+                try:
+                    result = await tab.send(
+                        uc.cdp.network.get_response_body(request_id)
+                    )
+                    body_str, is_b64 = result
+                    if is_b64:
+                        data = base64.b64decode(body_str)
+                    else:
+                        data = body_str.encode("utf-8")
+                    if len(data) < 50:
+                        continue
+                    ext = mime.split("/")[-1]
+                    ext = ext.replace("svg+xml", "svg").replace("jpeg", "jpg")
+                    parsed = urlparse(url)
+                    path_name = unquote(parsed.path.split("/")[-1])
+                    stem = Path(path_name).stem if path_name else ""
+                    if not stem or not stem.strip():
+                        stem = "image"
+                    fname = f"{counter:04d}_{stem}.{ext}"
+                    counter += 1
+                    dest = MEDIA_DIR / fname
+                    dest.write_bytes(data)
+                    captured_images[url] = dest
+                    captured_paths.add(base_path)
+                    lookup_map[fname] = url
+                except Exception:
+                    continue
+
+        # ── Reset CDP network buffers ──
+        async def reset_network():
+            try:
+                await tab.send(uc.cdp.network.disable())
+            except Exception:
+                pass
+            await asyncio.sleep(0.1)
+            try:
+                await tab.send(
+                    uc.cdp.network.enable(
+                        max_total_buffer_size=100_000_000,
+                        max_resource_buffer_size=10_000_000,
+                    )
+                )
+            except TypeError:
+                try:
+                    await tab.send(uc.cdp.network.enable())
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        # ── Wire up handler + enable network ──
+        tab.add_handler(uc.cdp.network.ResponseReceived, on_response)
+
+        try:
+            await tab.send(
+                uc.cdp.network.enable(
+                    max_total_buffer_size=100_000_000,
+                    max_resource_buffer_size=10_000_000,
+                )
+            )
+        except TypeError:
+            await tab.send(uc.cdp.network.enable())
+
+        try:
+            await tab.send(
+                uc.cdp.network.set_cache_disabled(cache_disabled=True)
+            )
+        except Exception:
+            pass
+
+        await tab.get(LIST_URL)
+
+        JSONL_PATH.write_text("", encoding="utf-8")
+
+        # ══════════════════════════════════════════════════════════
+        #  Scroll loop
+        # ══════════════════════════════════════════════════════════
+        for i in range(scrolls):
+            try:
+                await tab.evaluate(
+                    "window.scrollBy(0, window.innerHeight * 0.9);"
+                )
+                await tab.sleep(pause)
+
+                if i == CACHE_WARM_SCROLLS:
+                    try:
+                        await tab.send(
+                            uc.cdp.network.set_cache_disabled(
+                                cache_disabled=False
+                            )
+                        )
+                    except Exception:
+                        pass
+
+                # 1. Drain queued image bodies (sequential)
+                await drain_pending()
+
+                # 2. Parse current page HTML
+                html = await tab.get_content()
+
+                new_count = _parse_articles(
+                    html, captured_images, seen, tweet_objects
+                )
+
+                if new_count > 0:
+                    with JSONL_PATH.open("a", encoding="utf-8") as f:
+                        for t in tweet_objects[-new_count:]:
+                            f.write(
+                                json.dumps(t, ensure_ascii=False) + "\n"
+                            )
+
+                # 3. ★ PRUNE DOM — free renderer memory ★
+                try:
+                    await tab.evaluate(PRUNE_DOM_JS)
+                except Exception:
+                    pass
+
+                # 4. Periodically reset CDP buffers
+                if i > 0 and i % BUFFER_RESET_INTERVAL == 0:
+                    await reset_network()
+
+                if (i + 1) % 10 == 0:
+                    print(
+                        f"  scroll {i+1}: {len(tweet_objects)} tweets, "
+                        f"{len(captured_images)} images captured"
+                    )
+
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                break
+            except Exception as exc:
+                print(f"  scroll {i+1} error: {exc}")
+                try:
+                    pending_requests.clear()
+                    await reset_network()
+                except Exception:
+                    break
+
+        # ── Final drain ──
+        try:
+            await drain_pending()
+        except Exception:
+            pass
+
+        try:
+            await tab.send(
+                uc.cdp.network.set_cache_disabled(cache_disabled=False)
+            )
+        except Exception:
+            pass
+
+        URL_MAP_PATH.write_text(
+            json.dumps(lookup_map, indent=2, ensure_ascii=False)
+        )
+
+    finally:
+        try:
+            await browser.stop()
+        except Exception:
+            pass
+
+    if tweet_objects:
+        with JSONL_PATH.open("w", encoding="utf-8") as f:
+            for t in tweet_objects:
+                f.write(json.dumps(t, ensure_ascii=False) + "\n")
 
     return [t["text"] for t in tweet_objects]
 
 
 if __name__ == "__main__":
-    scraped = asyncio.run(scrape_list())
-    for i, text in enumerate(scraped, 1):
-        print(f"--- {i} ---")
-        print(text)
+    asyncio.run(scrape_list())
