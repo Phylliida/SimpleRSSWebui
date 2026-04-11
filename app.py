@@ -655,15 +655,24 @@ def _twitter_timestamp(raw: object) -> float:
             return 0.0
 
 
+def _twitter_asset_url(raw: object) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if text.startswith(("http://", "https://", "/")):
+        return text
+    return "/" + text
+
+
 def _twitter_summary(entry: dict) -> str:
     parts: list[str] = []
     text = str(entry.get("text") or "").strip()
     if text:
         escaped = escape(text).replace('\n', '<br/>')
         parts.append(f"<div>{escaped}</div>")
-    media = entry.get("media_urls") or []
+    media = entry.get("media") or entry.get("media_urls") or []
     for url in media:
-        url_str = str(url or "").strip()
+        url_str = _twitter_asset_url(url)
         if url_str:
             parts.append(
                 f'<div><img src="{escape(url_str)}" alt="" style="max-width:100%;height:auto;"/></div>'
@@ -686,6 +695,13 @@ def _twitter_summary(entry: dict) -> str:
                 inner.append(" ".join(labels))
             if quote_text:
                 inner.append(escape(quote_text).replace("\\n", "<br/>"))
+            quote_media = quote.get("media") or quote.get("media_urls") or []
+            for url in quote_media:
+                url_str = _twitter_asset_url(url)
+                if url_str:
+                    inner.append(
+                        f'<img src="{escape(url_str)}" alt="" style="max-width:100%;height:auto;"/>'
+                    )
             block = "<br/>".join(inner)
             parts.append(f"<blockquote>{block}</blockquote>")
     return "\n".join(parts)
@@ -700,7 +716,7 @@ def _item_from_twitter_entry(entry: dict) -> dict | None:
     created_at = str(entry.get("created_at") or "").strip()
     ts = _twitter_timestamp(created_at) or time.time()
     summary = _twitter_summary(entry)
-    avatar = str(entry.get("avatar_url") or "").strip()
+    avatar = _twitter_asset_url(entry.get("avatar") or entry.get("avatar_url"))
     retweeted_by = str(entry.get("retweeted_by") or "").strip().lstrip("@")
     is_retweet = bool(entry.get("is_retweet") and retweeted_by)
     item = {
