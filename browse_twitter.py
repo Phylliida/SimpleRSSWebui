@@ -4,13 +4,15 @@ import re
 import time
 import random
 import urllib.request
+import base64
 from pathlib import Path
 from typing import List
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 from zendriver import start
-
+import os
+os.chdir(os.path.dirname(__file__))
 LIST_URL = "https://x.com/i/lists/2009779378327302653"
 PROFILE_DIR = Path(__file__).parent / ".twitter_profile"
 LOG_PATH = Path(__file__).parent / "twitter_scrolls.log"
@@ -134,7 +136,7 @@ def _download_with_retry(
 
 
 async def scrape_list(
-    scrolls: int = 2000, pause: float = 5, wait_for_login: bool = True
+    scrolls: int = 1000, pause: float = 5, wait_for_login: bool = True
 ) -> List[str]:
     """
     Open the list in a real browser window, optionally pause for manual login,
@@ -143,7 +145,8 @@ async def scrape_list(
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Starting browser with profile at {PROFILE_DIR}")
 
-    html_chunks: List[str] = []
+   html_chunks: List[str] = []
+    captured_images: dict[str, str] = {}
     browser = await start(user_data_dir=str(PROFILE_DIR), headless=False)
     try:
         tab = await browser.get(LIST_URL)
@@ -151,7 +154,8 @@ async def scrape_list(
 
         if wait_for_login:
             print("Log in or dismiss dialogs in the opened window, then press Enter here…")
-            await _wait_for_enter("")
+            time.sleep(10)
+            #await _wait_for_enter("")
 
         interrupted = False
         for i in range(scrolls):
@@ -161,11 +165,39 @@ async def scrape_list(
                 await tab.sleep(pause)
                 html = await tab.get_content()
                 html_chunks.append(html)
-                print(f"Captured scroll {i + 1}/{scrolls}, html length {len(html)}")
+                
+                # Extract images from the page using JS to avoid second-pass downloads
+                existing_urls = list(captured_images.keys())
+                js_extract = f"""
+                (async () => {{
+                    const existing = {json.dumps(existing_urls)};
+                    const results = [];
+                    const imgs = document.querySelectorAll('img[src*="pbs.twimg.com"]');
+                    for (const img of imgs) {{
+                        if (existing.includes(img.src)) continue;
+                        try {{
+                            const response = await fetch(img.src);
+                            const blob = await response.blob();
+                            const reader = new FileReader();
+                            const base64 = await new Promise(resolve => {{
+                                reader.onloadend = () => resolve(reader.result);
+                                reader.readAsDataURL(blob);
+                            }});
+                            results.push({{ src: img.src, data: base64 }});
+                        }} catch (e) {{}}
+                    }}
+                    return results;
+                }})()
+                """
+                new_imgs = await tab.evaluate(js_extract)
+                for item in new_imgs:
+                    captured_images[item['src']] = item['data']
+
+                print(f"Captured scroll {i + 1}/{scrolls}, html length {len(html)}, images total {len(captured_images)}")
                 with LOG_PATH.open("a", encoding="utf-8") as f:
-                    f.write(f"\n\n<!-- scroll {i + 1} -->\n")
+                    f.write(f"\\n\\n<!-- scroll {i + 1} -->\\n")
                     f.write(html)
-                    f.write("\n")
+                    f.write("\\n")
             except KeyboardInterrupt:
                 interrupted = True
                 print(f"Interrupted after {i + 1} scroll(s); parsing what was captured so far")
@@ -177,6 +209,15 @@ async def scrape_list(
     finally:
         await browser.stop()
         print("Browser closed")
+
+    if not html_chunks:
+        print("No HTML captured; nothing to parse")
+        return []
+    
+    # We need to pass captured_images forward. 
+    # Since scrape_list returns List[str], but we need the images for the later part of the function,
+    # and the current function structure handles parsing and saving internally, 
+    # I will just keep captured_images in the local scope of scrape_list.
 
     if not html_chunks:
         print("No HTML captured; nothing to parse")
