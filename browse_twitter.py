@@ -22,31 +22,20 @@ URL_MAP_PATH = MEDIA_DIR / "url_mapping.json"
 
 BUFFER_RESET_INTERVAL = 5
 CACHE_WARM_SCROLLS = 5
-DOM_PRUNE_KEEP = 8  # keep this many cells after pruning
+DOM_PRUNE_KEEP = 8
 
 _COUNT_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)([KkMm])?")
 
-# ──────────────────────────────────────────────────────────────────
-# JS that guts old tweet cells to free renderer memory.
-# We keep the outer div (with a fixed height) so Twitter's virtual
-# scroller doesn't recalculate and jump.  Everything heavy inside
-# (images, videos, nested DOM) gets destroyed.
-# ──────────────────────────────────────────────────────────────────
 PRUNE_DOM_JS = """
 (() => {
-    // 1. Kill ALL videos on the page (autoplay eats huge memory)
     document.querySelectorAll('video').forEach(v => {
         v.pause();
         v.removeAttribute('src');
         v.load();
     });
-
-    // 2. Revoke any blob URLs
     document.querySelectorAll('[src^="blob:"]').forEach(el => {
         try { URL.revokeObjectURL(el.src); } catch(e) {}
     });
-
-    // 3. Gut old cells, preserve height shell
     const cells = [...document.querySelectorAll('[data-testid="cellInnerDiv"]')];
     const keep = """ + str(DOM_PRUNE_KEEP) + """;
     if (cells.length > keep) {
@@ -54,13 +43,11 @@ PRUNE_DOM_JS = """
             const cell = cells[i];
             if (cell.dataset.pruned) continue;
             const h = cell.offsetHeight;
-            // Null out heavy resources before removing subtree
             cell.querySelectorAll('img').forEach(img => {
                 img.removeAttribute('src');
                 img.removeAttribute('srcset');
             });
             cell.querySelectorAll('video, source, iframe').forEach(el => el.remove());
-            // Replace contents with empty shell
             cell.innerHTML = '';
             cell.style.height = h + 'px';
             cell.style.minHeight = h + 'px';
@@ -68,8 +55,6 @@ PRUNE_DOM_JS = """
             cell.dataset.pruned = '1';
         }
     }
-
-    // 4. Hint to GC (works if DevTools protocol exposed it)
     if (typeof gc === 'function') { try { gc(); } catch(e) {} }
 })();
 """
@@ -110,26 +95,21 @@ def _strip_profile_size(path: str) -> str:
 def _find_captured(url: str | None, captured: dict[str, Path]) -> Path | None:
     if not url:
         return None
-
     if url in captured:
         return captured[url]
-
     normalized = url.replace("&amp;", "&")
     if normalized in captured:
         return captured[normalized]
-
     base_path = urlparse(normalized).path
     for cap_url, path in captured.items():
         if urlparse(cap_url).path == base_path:
             return path
-
     stripped = _strip_profile_size(base_path)
     if stripped != base_path:
         for cap_url, path in captured.items():
             cap_stripped = _strip_profile_size(urlparse(cap_url).path)
             if cap_stripped == stripped:
                 return path
-
     filename = base_path.rstrip("/").split("/")[-1] if base_path else ""
     if filename:
         stripped_fn = _strip_profile_size(filename)
@@ -139,7 +119,6 @@ def _find_captured(url: str | None, captured: dict[str, Path]) -> Path | None:
                 return path
             if _strip_profile_size(cap_fn) == stripped_fn:
                 return path
-
     return None
 
 
@@ -165,15 +144,12 @@ def _best_pbs_url(img, *, allow_profile: bool = False) -> str | None:
                 continue
             candidates.append((width, order, url))
             order += 1
-
     src = img.get("src")
     if src and "pbs.twimg.com" in src:
         if allow_profile or "profile_images" not in src:
             candidates.append((0, order, src))
-
     if not candidates:
         return None
-
     _, _, url = max(candidates, key=lambda c: (c[0], c[1]))
     return url
 
@@ -237,9 +213,7 @@ def _parse_articles(
         if not retweeted_by and social_el:
             st = social_el.get_text(" ", strip=True)
             hm = re.search(r"@([A-Za-z0-9_]+)", st)
-            rm = re.search(
-                r"^(.*?)\s*reposted", st, flags=re.IGNORECASE
-            )
+            rm = re.search(r"^(.*?)\s*reposted", st, flags=re.IGNORECASE)
             if hm:
                 retweeted_by = hm.group(1)
             elif rm:
@@ -268,13 +242,11 @@ def _parse_articles(
         created_at = time_el.get("datetime") if time_el else None
 
         avatar_src = None
-
         avatar_el = article.select_one(
             'img[src*="pbs.twimg.com/profile_images"]'
         )
         if avatar_el:
             avatar_src = avatar_el.get("src")
-
         if not avatar_src:
             for img in article.select("img[srcset]"):
                 srcset = img.get("srcset", "")
@@ -283,7 +255,6 @@ def _parse_articles(
                     if "profile_images" in first_url:
                         avatar_src = first_url
                         break
-
         if not avatar_src:
             for el in article.select(
                 '[data-testid="Tweet-User-Avatar"] [style]'
@@ -299,7 +270,6 @@ def _parse_articles(
                     break
 
         avatar_local = _find_captured(avatar_src, captured_images)
-
         avatar_rel = None
         if user and avatar_local and avatar_local.exists():
             ext = avatar_local.suffix or ".jpg"
@@ -370,15 +340,9 @@ def _parse_articles(
         rep_el = article.select_one('button[data-testid="reply"]')
         ret_el = article.select_one('button[data-testid="retweet"]')
         lik_el = article.select_one('button[data-testid="like"]')
-        replies = (
-            _parse_count(rep_el.get("aria-label")) if rep_el else None
-        )
-        reposts = (
-            _parse_count(ret_el.get("aria-label")) if ret_el else None
-        )
-        likes = (
-            _parse_count(lik_el.get("aria-label")) if lik_el else None
-        )
+        replies = _parse_count(rep_el.get("aria-label")) if rep_el else None
+        reposts = _parse_count(ret_el.get("aria-label")) if ret_el else None
+        likes = _parse_count(lik_el.get("aria-label")) if lik_el else None
 
         quote = None
         if quote_block:
@@ -386,14 +350,12 @@ def _parse_articles(
             q_url = qs_el.get("href") if qs_el else None
             if q_url and q_url.startswith("/"):
                 q_url = "https://x.com" + q_url
-
             q_id = q_user = None
             if q_url:
                 qp = [p for p in urlparse(q_url).path.split("/") if p]
                 if len(qp) >= 2:
                     ii = next(
-                        (j for j, p in enumerate(qp) if p.isdigit()),
-                        None,
+                        (j for j, p in enumerate(qp) if p.isdigit()), None
                     )
                     if ii is not None:
                         q_id = qp[ii]
@@ -411,24 +373,20 @@ def _parse_articles(
                             q_user = qp[ii - 2]
                         elif ii >= 1:
                             q_user = qp[ii - 1]
-
             if not q_user:
                 nl = quote_block.select_one(
                     'div[data-testid="User-Name"] a[href^="/"]'
                 )
                 href = nl.get("href") if nl else None
                 if href:
-                    segs = [
-                        p for p in urlparse(href).path.split("/") if p
-                    ]
+                    segs = [p for p in urlparse(href).path.split("/") if p]
                     if segs:
                         q_user = segs[0]
             if not q_user:
                 ne = quote_block.select_one('[data-testid="User-Name"]')
                 if ne:
                     hm = re.search(
-                        r"@([A-Za-z0-9_]+)",
-                        ne.get_text(" ", strip=True),
+                        r"@([A-Za-z0-9_]+)", ne.get_text(" ", strip=True)
                     )
                     if hm:
                         q_user = hm.group(1)
@@ -469,9 +427,7 @@ def _parse_articles(
                     "url": q_url,
                     "user": q_user,
                     "text": q_text,
-                    "media": (
-                        q_media_local if q_media_local else q_media_orig
-                    ),
+                    "media": q_media_local if q_media_local else q_media_orig,
                     "media_fallback_urls": q_media_orig,
                 }
 
@@ -494,9 +450,7 @@ def _parse_articles(
                 "quote": quote,
                 "retweeted_by": retweeted_by,
                 "is_retweet": retweeted_by is not None,
-                "media": (
-                    media_local if media_local else media_orig_urls
-                ),
+                "media": media_local if media_local else media_orig_urls,
                 "media_fallback_urls": media_orig_urls,
             }
         )
@@ -526,13 +480,56 @@ async def scrape_list(
 
     pending_requests: list[tuple[uc.cdp.network.RequestId, str, str]] = []
 
+    # Maps rewritten URL → original URL so we can index both
+    url_rewrites: dict[str, str] = {}
+
     browser = await uc.start(user_data_dir=str(PROFILE_DIR), headless=False)
     tab = None
+    fetch_enabled = False
 
     try:
         tab = await browser.get("about:blank")
 
-        # ── CDP handler: zero awaits, just queue ──
+        # ─────────────────────────────────────────────────────────
+        #  Fetch handler — intercept pbs.twimg.com image requests
+        #  and rewrite the URL to name=orig (except profile pics)
+        # ─────────────────────────────────────────────────────────
+        async def on_request_paused(event: uc.cdp.fetch.RequestPaused):
+            try:
+                req_url = event.request.url
+                modified_url = None
+
+                # Upgrade to orig for everything except profile pics
+                if (
+                    "pbs.twimg.com" in req_url
+                    and "profile_images" not in req_url
+                ):
+                    upgraded = _orig_media_url(req_url)
+                    if upgraded != req_url:
+                        modified_url = upgraded
+                        # Record so we can map captured body back
+                        url_rewrites[upgraded] = req_url
+
+                await tab.send(
+                    uc.cdp.fetch.continue_request(
+                        request_id=event.request_id,
+                        url=modified_url,
+                    )
+                )
+            except Exception:
+                # MUST continue or the browser hangs on this request
+                try:
+                    await tab.send(
+                        uc.cdp.fetch.continue_request(
+                            request_id=event.request_id,
+                        )
+                    )
+                except Exception:
+                    pass
+
+        # ─────────────────────────────────────────────────────────
+        #  Network handler — queue image response bodies
+        # ─────────────────────────────────────────────────────────
         async def on_response(event: uc.cdp.network.ResponseReceived):
             mime = event.response.mime_type or ""
             if "image" not in mime:
@@ -547,7 +544,6 @@ async def scrape_list(
                 return
             pending_requests.append((event.request_id, url, mime))
 
-        # ── Drain queue sequentially ──
         async def drain_pending():
             nonlocal counter
             batch = pending_requests[:]
@@ -573,7 +569,9 @@ async def scrape_list(
                     if len(data) < 50:
                         continue
                     ext = mime.split("/")[-1]
-                    ext = ext.replace("svg+xml", "svg").replace("jpeg", "jpg")
+                    ext = ext.replace("svg+xml", "svg").replace(
+                        "jpeg", "jpg"
+                    )
                     parsed = urlparse(url)
                     path_name = unquote(parsed.path.split("/")[-1])
                     stem = Path(path_name).stem if path_name else ""
@@ -583,13 +581,26 @@ async def scrape_list(
                     counter += 1
                     dest = MEDIA_DIR / fname
                     dest.write_bytes(data)
+
                     captured_images[url] = dest
                     captured_paths.add(base_path)
                     lookup_map[fname] = url
+
+                    # Also register the original (pre-rewrite) URL so
+                    # HTML-src matching finds the file even though the
+                    # HTML still references e.g. name=900x900
+                    original_url = url_rewrites.get(url)
+                    if original_url:
+                        captured_images[original_url] = dest
+                        orig_norm = original_url.replace("&amp;", "&")
+                        captured_images[orig_norm] = dest
+                        captured_paths.add(
+                            urlparse(orig_norm).path
+                        )
+
                 except Exception:
                     continue
 
-        # ── Reset CDP network buffers ──
         async def reset_network():
             try:
                 await tab.send(uc.cdp.network.disable())
@@ -611,9 +622,37 @@ async def scrape_list(
             except Exception:
                 pass
 
-        # ── Wire up handler + enable network ──
+        async def enable_fetch():
+            nonlocal fetch_enabled
+            try:
+                await tab.send(
+                    uc.cdp.fetch.enable(
+                        patterns=[
+                            uc.cdp.fetch.RequestPattern(
+                                url_pattern="*pbs.twimg.com/*",
+                            )
+                        ]
+                    )
+                )
+                fetch_enabled = True
+            except Exception as exc:
+                print(f"  [warn] Fetch.enable failed: {exc}")
+                fetch_enabled = False
+
+        async def reset_fetch():
+            """Disable then re-enable Fetch interception."""
+            try:
+                await tab.send(uc.cdp.fetch.disable())
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+            await enable_fetch()
+
+        # ── Wire up handlers ──
+        tab.add_handler(uc.cdp.fetch.RequestPaused, on_request_paused)
         tab.add_handler(uc.cdp.network.ResponseReceived, on_response)
 
+        # Enable Network domain
         try:
             await tab.send(
                 uc.cdp.network.enable(
@@ -623,6 +662,19 @@ async def scrape_list(
             )
         except TypeError:
             await tab.send(uc.cdp.network.enable())
+
+        # Enable Fetch interception
+        await enable_fetch()
+        if fetch_enabled:
+            print(
+                "  [info] Fetch interception active — images "
+                "upgraded to name=orig"
+            )
+        else:
+            print(
+                "  [warn] Fetch interception unavailable — "
+                "images captured at default quality"
+            )
 
         try:
             await tab.send(
@@ -655,12 +707,11 @@ async def scrape_list(
                     except Exception:
                         pass
 
-                # 1. Drain queued image bodies (sequential)
+                # 1. Drain queued image bodies
                 await drain_pending()
 
                 # 2. Parse current page HTML
                 html = await tab.get_content()
-
                 new_count = _parse_articles(
                     html, captured_images, seen, tweet_objects
                 )
@@ -672,15 +723,16 @@ async def scrape_list(
                                 json.dumps(t, ensure_ascii=False) + "\n"
                             )
 
-                # 3. ★ PRUNE DOM — free renderer memory ★
+                # 3. Prune DOM to free renderer memory
                 try:
                     await tab.evaluate(PRUNE_DOM_JS)
                 except Exception:
                     pass
 
-                # 4. Periodically reset CDP buffers
+                # 4. Periodically reset CDP buffers + re-arm Fetch
                 if i > 0 and i % BUFFER_RESET_INTERVAL == 0:
                     await reset_network()
+                    await reset_fetch()
 
                 if (i + 1) % 10 == 0:
                     print(
@@ -695,6 +747,7 @@ async def scrape_list(
                 try:
                     pending_requests.clear()
                     await reset_network()
+                    await reset_fetch()
                 except Exception:
                     break
 
@@ -708,6 +761,11 @@ async def scrape_list(
             await tab.send(
                 uc.cdp.network.set_cache_disabled(cache_disabled=False)
             )
+        except Exception:
+            pass
+
+        try:
+            await tab.send(uc.cdp.fetch.disable())
         except Exception:
             pass
 
