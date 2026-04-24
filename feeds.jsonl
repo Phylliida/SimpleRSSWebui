@@ -436,3 +436,4 @@
 {"action": "add_folder", "folder": "Scripts/Wow"}
 {"action": "move_feed", "url": "custom://wownicew", "folder": "Scripts/Wow"}
 {"action": "set_custom_script", "url": "custom://wownicew", "source_folder": "Favs", "script": "def transform(entries):\n    return [e for e in entries if 'bee' in (e.get('title') or '').lower()]\n\n# Example: filter by keyword\n# def transform(entries):\n#     return [e for e in entries if 'keyword' in (e.get('title') or '').lower()]", "title": "ONION"}
+{"action": "mark_viewed", "item_id": "http://twitter|2042494000540848214"}

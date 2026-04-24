@@ -1,0 +1,44 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "openrouter": {
+      "models": {
+
+        "minimax/minimax-m2.7": {
+             "name": "Minimax M2.7",
+             "options": {
+                  "limit": {
+                       "context": 200000,
+                       "output": 150000
+                  }
+              }
+        }
+      }
+    },
+    "mistral": {
+      "models": {
+        "labs-leanstral-2603": {
+          "name": "Leanstral 2603"
+        }
+      }
+    },
+    "local-model": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "gemma-4-31B-it-Q4_K_M.gguf",
+      "options": {
+        "baseURL": "http://127.0.0.1:8050/v1",
+        "apiKey": ""
+      },
+      "models": {
+        "fun": {
+          "id": "gemma-4-31B-it-Q4_K_M.gguf",
+          "name": "gemma-4-31B-it-Q4_K_M.gguf",
+          "limit": {
+            "context": 100000,
+            "output": 90000
+          }
+        }
+      }
+    }
+  }
+}
